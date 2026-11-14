@@ -109,6 +109,26 @@ type Agent struct {
 	client     pb.NodeHubClient
 	lastTotals [2]int64
 	lastRateAt time.Time
+	watchCerts atomic.Pointer[[]*pb.CertWatch]
+	certSend   atomic.Pointer[func(*pb.NodeMsg) error]
+}
+
+func (a *Agent) setWatch(spec *pb.NodeSpec) {
+	ws := spec.WatchCerts
+	a.watchCerts.Store(&ws)
+}
+
+// sendCertReport inspects node-local certificates and reports them to the master.
+func (a *Agent) sendCertReport() {
+	sp := a.certSend.Load()
+	if sp == nil {
+		return
+	}
+	var ws []*pb.CertWatch
+	if p := a.watchCerts.Load(); p != nil {
+		ws = *p
+	}
+	(*sp)(&pb.NodeMsg{M: &pb.NodeMsg_Certs{Certs: certReport(ws)}})
 }
 
 func readFile(dir, name string) ([]byte, error) { return os.ReadFile(filepath.Join(dir, name)) }
@@ -151,6 +171,7 @@ func NewAgent(cfg Config) (*Agent, error) {
 	a.bootID = hex.EncodeToString(b)
 	a.tracker = NewTracker()
 	a.core = NewCore(a.tracker, a.log)
+	a.core.SetCertDir(filepath.Join(cfg.Dir, "certs"))
 	a.spool, err = OpenSpool(filepath.Join(cfg.Dir, fSpool), cfg.MaxSpool)
 	if err != nil {
 		return nil, fmt.Errorf("spool: %w", err)
@@ -206,6 +227,7 @@ func (a *Agent) Run(ctx context.Context) error {
 				a.log.Printf("serving cached spec r%d", spec.Revision)
 			}
 			a.applied.Store(spec.Revision)
+			a.setWatch(spec)
 		}
 	}
 
@@ -361,12 +383,15 @@ func (a *Agent) session(ctx context.Context) error {
 	}
 	a.log.Printf("connected to master %s as %s", a.master, a.nodeID)
 	a.maybeRenew(sctx)
+	a.certSend.Store(&send)
+	defer a.certSend.CompareAndSwap(&send, nil)
 
 	go func() {
 		t := time.NewTicker(10 * time.Second)
 		defer t.Stop()
 		a.sendStatus(send)
-		for {
+		a.sendCertReport()
+		for i := 1; ; i++ {
 			select {
 			case <-sctx.Done():
 				return
@@ -375,10 +400,19 @@ func (a *Agent) session(ctx context.Context) error {
 					cancel()
 					return
 				}
+				if i%60 == 0 { // every 10 minutes: certbot renews behind our back
+					a.sendCertReport()
+				}
 			}
 		}
 	}()
 
+	var watchStop chan struct{}
+	defer func() {
+		if watchStop != nil {
+			close(watchStop)
+		}
+	}()
 	specCh := make(chan uint64, 1)
 	go func() {
 		for rev := range specCh {
@@ -404,7 +438,41 @@ func (a *Agent) session(ctx context.Context) error {
 			kick := userSet(m.Kick.Users)
 			n := a.tracker.Kick(func(r *connRec) bool { return kick[r.user] })
 			a.log.Printf("kick %v: closed %d conns", m.Kick.Users, n)
+		case *pb.MasterMsg_KickIps:
+			ips := userSet(m.KickIps.Ips)
+			n := a.tracker.Kick(func(r *connRec) bool { return r.user == m.KickIps.User && ips[r.srcIP] })
+			a.log.Printf("device limit: user %s, closed %d conns from %v", m.KickIps.User, n, m.KickIps.Ips)
+		case *pb.MasterMsg_CloseConns:
+			ids := map[uint64]bool{}
+			for _, id := range m.CloseConns.Ids {
+				ids[id] = true
+			}
+			a.tracker.Kick(func(r *connRec) bool { return ids[r.id] })
+		case *pb.MasterMsg_Watch:
+			if m.Watch.On && watchStop == nil {
+				watchStop = make(chan struct{})
+				go a.watch(send, watchStop)
+			} else if !m.Watch.On && watchStop != nil {
+				close(watchStop)
+				watchStop = nil
+			}
 		case *pb.MasterMsg_Ping:
+		}
+	}
+}
+
+// watch streams live connections once a second while the panel is looking.
+func (a *Agent) watch(send func(*pb.NodeMsg) error, stop <-chan struct{}) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for {
+		if err := send(&pb.NodeMsg{M: &pb.NodeMsg_Conns{Conns: a.tracker.Snapshot(500)}}); err != nil {
+			return
+		}
+		select {
+		case <-stop:
+			return
+		case <-t.C:
 		}
 	}
 }
@@ -456,6 +524,8 @@ func (a *Agent) syncSpec(ctx context.Context, rev uint64, send func(*pb.NodeMsg)
 	} else {
 		a.applyErr.Store("")
 		a.applied.Store(spec.Revision)
+		a.setWatch(spec)
+		go a.sendCertReport()
 		if b, err := proto.Marshal(spec); err == nil {
 			writeAtomic(filepath.Join(a.cfg.Dir, fSpec), b)
 		}
@@ -520,3 +590,9 @@ func (a *Agent) Totals() (int64, int64) { return a.tracker.totalUp.Load(), a.tra
 
 // Backlog is the number of reports not yet acknowledged by the master.
 func (a *Agent) Backlog() int { return a.spool.Len() }
+
+// CertWrites counts panel certificate files written (tests).
+func (a *Agent) CertWrites() int { return a.core.CertWrites() }
+
+// CoreStats returns (in-place user updates, inbound creations) for tests.
+func (a *Agent) CoreStats() (int, int) { return a.core.Stats() }

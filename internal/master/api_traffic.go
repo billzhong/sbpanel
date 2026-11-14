@@ -78,20 +78,25 @@ func (m *Master) apiSeries(w http.ResponseWriter, r *http.Request) {
 	f := m.filter(r, 24)
 	step := qInt(r, "step", 300)
 	switch step {
-	case 60, 300, 900, 3600, 86400:
+	case 60, 300, 900, 1800, 3600, 10800, 21600, 86400:
 	default:
-		writeErr(w, 400, "step must be 60, 300, 900, 3600 or 86400")
+		writeErr(w, 400, "step 只能是 60/300/900/1800/3600/10800/21600/86400")
 		return
 	}
+	if f.to <= f.from {
+		writeErr(w, 400, "结束时间必须晚于开始时间")
+		return
+	}
+	// minute data covers the retention window exactly; older ranges fall back to hours
 	table := "traffic_minute"
-	if step >= 3600 || f.from < now()-int64(m.cfg.KeepMinuteDays)*86400 {
+	if f.from < m.minuteFloor() {
 		table = "traffic_hour"
 		if step < 3600 {
 			step = 3600
 		}
 	}
 	if (f.to-f.from)/step > 2000 {
-		writeErr(w, 400, "too many points; use a larger step")
+		writeErr(w, 400, "数据点过多（上限 2000），请选择更大的粒度")
 		return
 	}
 	off := int64(0)
@@ -117,7 +122,12 @@ func (m *Master) apiSeries(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad group")
 		return
 	}
-	where, args := f.where(bucket(f.from))
+	// rows are filtered at the table's own precision; buckets only group them
+	rowFrom := f.from - f.from%60
+	if table == "traffic_hour" {
+		rowFrom = f.from - f.from%3600
+	}
+	where, args := f.where(rowFrom)
 	rows, err := m.db.Query(`SELECT ts, `+keyExpr+`, SUM(up), SUM(down) FROM `+table+where+` GROUP BY ts, 2`, args...)
 	if errf(w, err) {
 		return
@@ -227,12 +237,20 @@ func (m *Master) top(f trafficFilter, dim string, limit int) ([]topRow, error) {
 	var q string
 	var args []any
 	if e, ok := exact[dim]; ok {
-		w, a := f.where(f.from - f.from%3600)
-		q = `SELECT ` + e + `, SUM(up), SUM(down), SUM(conns), COUNT(DISTINCT user_id) FROM traffic_hour` + w + ` GROUP BY 1`
+		table, from := "traffic_minute", f.from-f.from%60
+		if f.from < m.minuteFloor() {
+			table, from = "traffic_hour", f.from-f.from%3600
+		}
+		w, a := f.where(from)
+		q = `SELECT ` + e + `, SUM(up), SUM(down), SUM(conns), COUNT(DISTINCT user_id) FROM ` + table + w + ` GROUP BY 1`
 		args = a
 	} else if e, ok := dims[dim]; ok {
-		w, a := f.where(f.from - f.from%3600)
-		q = `SELECT ` + e + `, SUM(up), SUM(down), SUM(conns), COUNT(DISTINCT user_id) FROM dim_hour` + w + ` GROUP BY 1`
+		table, from := "dim_5m", f.from-f.from%300
+		if f.from < m.minuteFloor() {
+			table, from = "dim_hour", f.from-f.from%3600
+		}
+		w, a := f.where(from)
+		q = `SELECT ` + e + `, SUM(up), SUM(down), SUM(conns), COUNT(DISTINCT user_id) FROM ` + table + w + ` GROUP BY 1`
 		args = a
 	} else {
 		return nil, errBadDim
@@ -306,8 +324,30 @@ func (e apiError) Error() string { return string(e) }
 
 const errBadDim = apiError("bad dim")
 
+// minuteFloor is the oldest timestamp still covered by minute / 5-minute tables.
+func (m *Master) minuteFloor() int64 {
+	return now() - int64(m.cfg.KeepMinuteDays)*86400 + 3600
+}
+
+// topPrecision tells the client how exact the breakdown for a dimension is.
+func (m *Master) topPrecision(f trafficFilter, dim string) string {
+	switch dim {
+	case "user", "node", "inbound", "outbound":
+		if f.from < m.minuteFloor() {
+			return "1h"
+		}
+		return "1m"
+	}
+	if f.from < m.minuteFloor() {
+		return "1h"
+	}
+	return "5m"
+}
+
 func (m *Master) apiTop(w http.ResponseWriter, r *http.Request) {
 	f := m.filter(r, 24)
+	w.Header().Set("X-Precision", m.topPrecision(f, r.URL.Query().Get("dim")))
+	w.Header().Set("Access-Control-Expose-Headers", "X-Precision")
 	limit := int(qInt(r, "limit", 50))
 	if limit < 1 || limit > 1000 {
 		limit = 50

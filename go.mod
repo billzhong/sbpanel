@@ -149,7 +149,7 @@ require (
 	github.com/sagernet/sing-shadowtls v0.2.2-0.20260928201441-a9c0127d5c99 // indirect
 	github.com/sagernet/sing-snell v0.0.0-20260904135315-bc5a12ac736f // indirect
 	github.com/sagernet/sing-usbip v0.0.0-20260817040617-28bd42667eca // indirect
-	github.com/sagernet/sing-vmess v0.2.9-0.20261019223527-a0c58542bd9d // indirect
+	github.com/sagernet/sing-vmess v0.2.9-0.20261019223527-a0c58542bd9d
 	github.com/sagernet/smux v1.5.50-sing-box-mod.1 // indirect
 	github.com/sagernet/tailscale v1.102.1-sing-box-1.14-mod.5.0.20261019070639-79c1732442a9 // indirect
 	github.com/sagernet/wireguard-go v0.0.8-0.20261022215841-e4d85ef2ed38 // indirect
@@ -186,14 +186,16 @@ require (
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.48.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
+	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.52.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
+	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/blake3 v1.3.0 // indirect
 	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
+	rsc.io/qr v0.2.0
 	zombiezen.com/go/capnproto2 v2.18.2+incompatible // indirect
 )

@@ -1,8 +1,10 @@
 export class ApiError extends Error {
   status: number
-  constructor(status: number, msg: string) {
+  data: any
+  constructor(status: number, msg: string, data?: any) {
     super(msg)
     this.status = status
+    this.data = data
   }
 }
 
@@ -17,9 +19,21 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
   const data = text ? JSON.parse(text) : null
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('sbp:unauthorized'))
-    throw new ApiError(res.status, data?.error ?? res.statusText)
+    throw new ApiError(res.status, data?.error ?? res.statusText, data)
   }
   return data as T
+}
+
+/** Like api() but also returns the response headers (e.g. X-Precision on /traffic/top). */
+export async function apiRaw<T>(path: string): Promise<{ data: T; headers: Headers }> {
+  const res = await fetch('/api' + path, { credentials: 'same-origin' })
+  const text = await res.text()
+  const data = text ? JSON.parse(text) : null
+  if (!res.ok) {
+    if (res.status === 401) window.dispatchEvent(new Event('sbp:unauthorized'))
+    throw new ApiError(res.status, data?.error ?? res.statusText, data)
+  }
+  return { data: data as T, headers: res.headers }
 }
 
 export type SysInfo = {
@@ -31,6 +45,7 @@ export type Node = {
   id: string; name: string; address: string; online: boolean; enrolled: boolean
   revision: number; applied_revision: number; apply_error: string; last_seen: number; cert_expire: number
   info: { version?: string; singbox?: string; hostname?: string; os?: string; arch?: string }
+  public_address: string; template_id: number
   traffic_limit: number; reset_day: number; inbounds: number; sys?: SysInfo
   rate_up: number; rate_down: number; active_conns: number; spool_backlog: number; online_users: number
   month_up: number; month_down: number; today_up: number; today_down: number
@@ -39,12 +54,49 @@ export type Node = {
 export type Inbound = {
   id: number; node_id: string; node: string; tag: string; type: string; port: number
   options: Record<string, unknown>; client: Record<string, unknown>; enabled: boolean; remark: string
+  sort: number; group_ids: number[]
 }
 
 export type User = {
   id: number; username: string; sub_token: string; uuid: string; password?: string; status: string; enabled: boolean
   traffic_limit: number; expire_at: number; reset_strategy: string; note: string
   used_up: number; used_down: number; life_up: number; life_down: number; created_at: number; online_ips: number
+  device_limit: number; speed_up: number; speed_down: number; last_reset_at: number; sub_last_at: number; sub_last_ua: string
+  group_ids: number[]; sub_profile_id?: number
+}
+
+export type Group = { id: number; name: string; remark: string; is_default: boolean; inbound_ids: number[]; users: number; sub_profile_id?: number }
+
+export type Host = {
+  id: number; inbound_id: number; remark: string; address: string; port: number; sni: string; host: string; path: string
+  alpn: string; fingerprint: string; allow_insecure: boolean; sort: number; enabled: boolean
+}
+
+export type Template = { id: number; name: string; json: string; draft: string; has_draft: boolean; updated_at: number; nodes: string[] }
+
+export type SubInfo = {
+  url: string; qr: string; active: boolean; links: { remark: string; type: string; uri: string }[]
+  access: { ts: number; ip: string; ua: string; format: string }[]
+  formats: Record<'base64' | 'singbox' | 'mihomo' | 'page', string>
+}
+
+export type Settings = {
+  sub_base_url: string; sub_title: string; sub_update_hours: string; tg_chat: string; tg_token_set: boolean
+  webhook_url: string; notify_events: string; device_policy: string; ca_sha256: string; grpc_listen: string
+  public_grpc: string; keep_minute_days: number; keep_hour_days: number; keep_dim_days: number; tz: string
+}
+
+export type Conn = {
+  id: number; user: string; username: string; inbound: string; outbound: string; network: string; host: string
+  port: number; src_ip: string; rule: string; start: number; up: number; down: number
+}
+
+export type AuditRow = { ts: number; admin: string; action: string; target: string; detail: string; ip: string }
+export type ApiToken = { id: number; name: string; prefix: string; created_at: number; last_used: number }
+
+export type ImportReport = {
+  dry_run: boolean; users: number; updated: number; skipped: string[] | null; groups: string[] | null; warnings: string[] | null
+  inbounds: { tag: string; type: string; port: number; users: number; remark: string }[] | null
 }
 
 export type TopRow = { key: string; label: string; up: number; down: number; conns: number; users: number }
@@ -63,3 +115,42 @@ export type Overview = {
 export type Event = { ts: number; kind: string; user_id: number; user: string; node_id: string; node: string; detail: string }
 
 export type Enroll = { node_id: string; token: string; expires_at: number; master: string; ca_sha256: string; command: string }
+
+// ---- subscription-page themes (settings → 订阅页) ----
+
+export type SubThemeField = {
+  key?: string; type: 'title' | 'text' | 'textarea' | 'url' | 'color' | 'number' | 'switch' | 'select' | 'multiselect'
+  label: string; help: string; default?: unknown; maxLength?: number; min?: number; max?: number
+  options?: { value: string; label: string }[]
+}
+
+export type SubTheme = {
+  id: string; name: string; version: string; author: string; description: string; homepage: string; license: string
+  builtin: boolean; active: boolean; preview_url: string | null; schema: SubThemeField[]; settings: Record<string, unknown>
+}
+
+export type SubSupportLink = { label: string; url: string; icon?: string }
+
+export type SiteSettings = Settings & {
+  sub_announcement: string; sub_logo_url: string; sub_support_links: string; sub_clients: string; ui_appearance: string
+}
+
+/** The clients the server knows how to deep-link (mirrors subClients in internal/master/subdata.go). */
+export const SUB_CLIENTS = [
+  { id: 'singbox', label: 'sing-box' }, { id: 'mihomo', label: 'Clash Verge / mihomo' }, { id: 'shadowrocket', label: 'Shadowrocket' },
+  { id: 'hiddify', label: 'Hiddify' }, { id: 'stash', label: 'Stash' }, { id: 'v2rayng', label: 'v2rayNG' }, { id: 'nekobox', label: 'NekoBox' },
+]
+
+/** Multipart upload to /api (the JSON helper above cannot send files). */
+export async function apiUpload<T>(path: string, file: File): Promise<T> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch('/api' + path, { method: 'POST', body: fd, credentials: 'same-origin' })
+  const text = await res.text()
+  const data = text ? JSON.parse(text) : null
+  if (!res.ok) {
+    if (res.status === 401) window.dispatchEvent(new Event('sbp:unauthorized'))
+    throw new ApiError(res.status, data?.error ?? res.statusText, data)
+  }
+  return data as T
+}

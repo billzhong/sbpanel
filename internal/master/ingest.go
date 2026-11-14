@@ -40,6 +40,9 @@ func (m *Master) ingest(nodeID string, r *pb.TrafficReport) (dup bool, err error
 	type ud struct{ up, down int64 }
 	perUser := map[int64]*ud{}
 	for _, u := range r.Users {
+		if u.User == probeUser { // connectivity probe (older nodes still report it)
+			continue
+		}
 		uid := parseUserID(u.User)
 		for _, q := range []struct {
 			table string
@@ -69,6 +72,17 @@ func (m *Master) ingest(nodeID string, r *pb.TrafficReport) (dup bool, err error
 		}
 	}
 	for _, d := range r.Dims {
+		if d.User == probeUser {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO dim_5m(ts,node_id,user_id,inbound,outbound,host,port,src_ip,network,rule,up,down,conns)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+			ON CONFLICT(ts,node_id,user_id,inbound,outbound,host,port,src_ip,network,rule) DO UPDATE SET
+			up=up+excluded.up, down=down+excluded.down, conns=conns+excluded.conns`,
+			ws-ws%300, nodeID, parseUserID(d.User), d.Inbound, d.Outbound, strings.ToLower(d.Host), d.Port, d.SrcIp, d.Network, d.Rule,
+			d.Up, d.Down, d.Conns); err != nil {
+			return false, err
+		}
 		if _, err := tx.Exec(`INSERT INTO dim_hour(ts,node_id,user_id,inbound,outbound,host,port,src_ip,network,rule,up,down,conns)
 			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(ts,node_id,user_id,inbound,outbound,host,port,src_ip,network,rule) DO UPDATE SET
@@ -126,18 +140,25 @@ func (m *Master) policyLoop(stop <-chan struct{}) {
 			return
 		case <-t.C:
 		}
-		res, err := m.db.Exec(`UPDATE users SET status='expired' WHERE status='active' AND expire_at>0 AND expire_at<=?`, now())
-		if err == nil {
-			if n, _ := res.RowsAffected(); n > 0 {
-				addEvent(m.db, "users_expired", 0, "", strconv.FormatInt(n, 10))
-				m.reconcile()
-			}
+		expired, _ := scanRows(m, `SELECT id FROM users WHERE status='active' AND expire_at>0 AND expire_at<=?`, []any{now()},
+			func(s func(...any) error) (int64, error) {
+				var id int64
+				return id, s(&id)
+			})
+		for _, id := range expired {
+			m.recomputeStatus(id)
 		}
+		if len(expired) > 0 {
+			m.reconcile()
+		}
+		m.resetUsage(time.Now())
+		m.checkNodeQuota(time.Now())
 		if time.Since(lastClean) > time.Hour {
 			lastClean = time.Now()
 			n := now()
 			m.db.Exec(`DELETE FROM traffic_minute WHERE ts<?`, n-int64(m.cfg.KeepMinuteDays)*86400)
 			m.db.Exec(`DELETE FROM dim_hour WHERE ts<?`, n-int64(m.cfg.KeepDimDays)*86400)
+			m.db.Exec(`DELETE FROM dim_5m WHERE ts<?`, n-int64(m.cfg.KeepMinuteDays)*86400)
 			m.db.Exec(`DELETE FROM traffic_hour WHERE ts<?`, n-int64(m.cfg.KeepHourDays)*86400)
 			m.db.Exec(`DELETE FROM report_seen WHERE ts<?`, n-14*86400)
 			m.db.Exec(`DELETE FROM events WHERE ts<?`, n-90*86400)

@@ -33,7 +33,8 @@ type Config struct {
 	KeepHourDays   int
 	KeepDimDays    int
 	TZ             string
-	Web            fs.FS // built SPA; nil = API only
+	Web            fs.FS  // built SPA; nil = API only
+	CloudflareAPI  string // Cloudflare API base URL (tests point it at a fake)
 }
 
 func (c *Config) defaults() {
@@ -50,7 +51,7 @@ func (c *Config) defaults() {
 		c.AdminUser = "admin"
 	}
 	if c.KeepMinuteDays == 0 {
-		c.KeepMinuteDays = 3
+		c.KeepMinuteDays = 30
 	}
 	if c.KeepHourDays == 0 {
 		c.KeepHourDays = 400
@@ -73,6 +74,9 @@ type Master struct {
 	secret   []byte // session HMAC key
 	specMu   sync.Mutex
 	ingestMu sync.Mutex
+	box      *secretBox // encrypts DNS tokens and private keys at rest
+	certs    *certManager
+	probes   *prober
 }
 
 func New(cfg Config) (*Master, error) {
@@ -90,9 +94,15 @@ func New(cfg Config) (*Master, error) {
 	}
 	m := &Master{cfg: cfg, db: db, log: log.New(os.Stderr, "[master] ", log.LstdFlags), loc: loc}
 	m.hub = newHub(m)
+	eventHook = m.onEvent
 	if err := m.initSecrets(); err != nil {
 		return nil, err
 	}
+	if m.box, err = loadSecretBox(cfg.DataDir); err != nil {
+		return nil, err
+	}
+	m.certs = newCertManager(m)
+	m.probes = newProber(m)
 	return m, nil
 }
 
@@ -167,6 +177,8 @@ func (m *Master) Run(ctx context.Context) error {
 	m.log.Printf("grpc on %s, web on http://%s, CA sha256 %s", gl.Addr(), wl.Addr(), m.CAFingerprint())
 	stop := make(chan struct{})
 	go m.policyLoop(stop)
+	go m.certs.loop(stop)
+	go m.probes.loop(stop)
 	srv := &http.Server{Handler: m.routes(), ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 2)
 	go func() { errc <- m.hub.Serve(gl, m.ca) }()
@@ -184,3 +196,6 @@ func (m *Master) Run(ctx context.Context) error {
 	}
 	return err
 }
+
+// Version is set at build time (-X sbpanel/internal/master.Version=...).
+var Version = "dev"

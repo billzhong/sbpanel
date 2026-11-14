@@ -42,6 +42,8 @@ message NodeMsg {
     Heartbeat heartbeat = 2;
     ApplyResult apply = 3;
     OnlineSnapshot online = 4;
+    ConnSnapshot conns = 5;
+    CertReport certs = 6;
   }
 }
 
@@ -50,7 +52,41 @@ message MasterMsg {
     SpecAvailable spec = 1;
     Kick kick = 2;
     Ping ping = 3;
+    Watch watch = 4;
+    CloseConns close_conns = 5;
+    KickIPs kick_ips = 6;
   }
+}
+
+// Watch turns the live connection stream on or off.
+message Watch { bool on = 1; }
+
+message CloseConns { repeated uint64 ids = 1; }
+
+// KickIPs drops a user's connections from specific source IPs (device limit).
+message KickIPs {
+  string user = 1;
+  repeated string ips = 2;
+}
+
+message ConnInfo {
+  uint64 id = 1;
+  string user = 2;
+  string inbound = 3;
+  string outbound = 4;
+  string network = 5;
+  string host = 6;
+  uint32 port = 7;
+  string src_ip = 8;
+  string rule = 9;
+  int64 start = 10;
+  int64 up = 11;
+  int64 down = 12;
+}
+
+message ConnSnapshot {
+  repeated ConnInfo conns = 1;
+  int64 total = 2;
 }
 
 message Hello {
@@ -113,6 +149,52 @@ message NodeSpec {
   bytes skeleton_json = 2;   // option.Options without inbounds
   string skeleton_hash = 3;
   repeated InboundSpec inbounds = 4;
+  repeated UserPolicy policies = 5;
+  // Panel-managed certificates (ACME / uploaded) used by this node's inbounds. The node
+  // writes them to {dir}/certs/<id>.{crt,key}; a renewal changes only these files (and
+  // their hash), never the inbound options, so sing-box hot-reloads without a rebuild.
+  repeated CertBundle certs = 6;
+  // Node-local certificate files (e.g. certbot) the node reports on (SANs, expiry).
+  repeated CertWatch watch_certs = 7;
+}
+
+message CertBundle {
+  string id = 1;
+  bytes cert_pem = 2;  // full chain; empty in the stored spec, filled when served
+  bytes key_pem = 3;
+  string hash = 4;     // of cert+key, part of the spec hash
+}
+
+message CertWatch {
+  string id = 1;
+  string cert_path = 2;
+  string key_path = 3;
+}
+
+// CertReport is sent on connect, after a spec apply and periodically.
+message CertReport {
+  repeated CertStatus certs = 1;
+  // directory names under /etc/letsencrypt/live (path suggestions in the panel)
+  repeated string certbot_names = 2;
+}
+
+message CertStatus {
+  string id = 1;
+  string cert_path = 2;
+  int64 not_before = 3;
+  int64 not_after = 4;
+  repeated string sans = 5;
+  string issuer = 6;
+  string fingerprint = 7;  // sha256 of the leaf DER, hex
+  string error = 8;        // unreadable file, key mismatch, ...
+}
+
+// UserPolicy is enforced by the node tracker; changing it never touches inbounds.
+message UserPolicy {
+  string user = 1;
+  int64 speed_up = 2;    // bytes/s, 0 = unlimited
+  int64 speed_down = 3;
+  int32 device_limit = 4; // distinct source IPs on this node, 0 = unlimited
 }
 
 message InboundSpec {
@@ -123,6 +205,12 @@ message InboundSpec {
   bytes users_json = 5;      // JSON array injected as "users"
   string users_hash = 6;
   repeated string user_names = 7;
+  // The node owns the listener and expects a PROXY protocol (v1/v2) header from a
+  // local reverse proxy (e.g. nginx stream sharing :443), preserving client IPs.
+  bool proxy_protocol = 8;
+  // Panel certificate (CertBundle id): the node points tls.certificate_path/key_path
+  // at its local copy before starting the inbound.
+  string cert_id = 9;
 }
 
 message TrafficReport {

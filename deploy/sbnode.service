@@ -1,0 +1,18 @@
+[Unit]
+Description=sbpanel node (embedded sing-box)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/sbnode run --dir /var/lib/sbnode
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+# sing-box needs to bind privileged ports and set socket options
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/sbnode
+
+[Install]
+WantedBy=multi-user.target

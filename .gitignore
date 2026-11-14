@@ -4,3 +4,9 @@ web/node_modules/
 web/dist/*
 !web/dist/.keep
 web/*.tsbuildinfo
+
+# unrelated local folders (never publish)
+/sbpanel/
+/xmon/
+/s-ui/
+/dist/

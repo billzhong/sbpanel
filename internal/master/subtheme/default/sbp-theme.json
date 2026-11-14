@@ -1,0 +1,27 @@
+{
+  "$schema": "https://sbpanel.dev/schema/sub-theme-v1.json",
+  "api": 1,
+  "id": "default",
+  "name": { "zh-CN": "默认", "en": "Default" },
+  "version": "1.0.0",
+  "author": "sbpanel",
+  "description": { "zh-CN": "卡片式、移动优先的订阅页", "en": "Card-based, mobile-first subscription page" },
+  "homepage": "",
+  "license": "MIT",
+  "preview": "preview.jpg",
+  "entry": "index.html",
+  "settings": [
+    { "type": "title", "label": "外观" },
+    { "key": "palette", "type": "select", "label": "配色", "default": "neutral",
+      "options": [ { "value": "neutral", "label": "石墨" }, { "value": "rosepine", "label": "Rosé Pine" }, { "value": "catppuccin", "label": "Catppuccin" }, { "value": "nord", "label": "Nord" } ] },
+    { "key": "accent", "type": "color", "label": "强调色", "default": "", "help": "留空则使用配色自带的强调色" },
+    { "key": "default_mode", "type": "select", "label": "默认明暗", "default": "system",
+      "options": [ { "value": "system", "label": "跟随系统" }, { "value": "light", "label": "浅色" }, { "value": "dark", "label": "深色" } ] },
+    { "type": "title", "label": "内容" },
+    { "key": "show_node_address", "type": "switch", "label": "显示节点地址与端口", "default": true },
+    { "key": "show_node_qr", "type": "switch", "label": "节点卡片显示二维码按钮", "default": true },
+    { "key": "clients", "type": "multiselect", "label": "显示的客户端", "default": ["singbox", "mihomo", "shadowrocket", "hiddify", "v2rayng", "nekobox", "stash"],
+      "options": "$clients" },
+    { "key": "footer", "type": "text", "label": "页脚文字", "default": "", "maxLength": 200 }
+  ]
+}

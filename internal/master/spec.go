@@ -38,6 +38,7 @@ func shortHash(b ...[]byte) string {
 }
 
 type specUser struct {
+	Name     string // sing-box user name; empty = the numeric ID
 	ID       int64
 	UUID     string
 	Password string
@@ -64,7 +65,10 @@ func ssKeyLen(method string) int {
 func usersJSON(typ string, opts map[string]any, us []specUser) ([]byte, error) {
 	out := make([]map[string]any, 0, len(us))
 	for _, u := range us {
-		name := strconv.FormatInt(u.ID, 10)
+		name := u.Name
+		if name == "" {
+			name = strconv.FormatInt(u.ID, 10)
+		}
 		switch typ {
 		case "vless":
 			m := map[string]any{"name": name, "uuid": u.UUID}
@@ -92,50 +96,90 @@ func usersJSON(typ string, opts map[string]any, us []specUser) ([]byte, error) {
 	return json.Marshal(out)
 }
 
+// nodeSkeleton returns the published skeleton JSON of the node's template.
+func nodeSkeleton(db *sql.DB, nodeID string) (string, error) {
+	var tid int64
+	var legacy string
+	if err := db.QueryRow(`SELECT template_id, skeleton_json FROM nodes WHERE id=?`, nodeID).Scan(&tid, &legacy); err != nil {
+		return "", err
+	}
+	var js string
+	if tid > 0 && db.QueryRow(`SELECT json FROM templates WHERE id=?`, tid).Scan(&js) == nil && js != "" {
+		return js, nil
+	}
+	if db.QueryRow(`SELECT json FROM templates ORDER BY id LIMIT 1`).Scan(&js) == nil && js != "" {
+		return js, nil
+	}
+	if legacy != "" {
+		return legacy, nil
+	}
+	return DefaultSkeleton, nil
+}
+
 // buildSpec computes the desired state of one node from the database.
 func buildSpec(db *sql.DB, nodeID string) (*pb.NodeSpec, error) {
-	var skeleton string
-	if err := db.QueryRow(`SELECT skeleton_json FROM nodes WHERE id=?`, nodeID).Scan(&skeleton); err != nil {
+	skeleton, err := nodeSkeleton(db, nodeID)
+	if err != nil {
 		return nil, err
 	}
-	if skeleton == "" {
-		skeleton = DefaultSkeleton
-	}
-	var sk any
+	var sk map[string]any
 	if err := json.Unmarshal([]byte(skeleton), &sk); err != nil {
 		return nil, fmt.Errorf("skeleton: %w", err)
 	}
-	skb, _ := json.Marshal(sk) // canonical
+	delete(sk, "inbounds")
+	skb, _ := json.Marshal(sk) // canonical, compact
 	spec := &pb.NodeSpec{SkeletonJson: skb, SkeletonHash: shortHash(skb)}
 
-	var users []specUser
-	rows, err := db.Query(`SELECT id, uuid, password, flow FROM users WHERE enabled=1 AND status='active' ORDER BY id`)
+	type inb struct {
+		id            int64
+		tag, typ, opt string
+	}
+	var ins []inb
+	rows, err := db.Query(`SELECT id, tag, type, options_json FROM inbounds WHERE node_id=? AND enabled=1 ORDER BY tag`, nodeID)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		var u specUser
-		rows.Scan(&u.ID, &u.UUID, &u.Password, &u.Flow)
-		users = append(users, u)
+		var x inb
+		rows.Scan(&x.id, &x.tag, &x.typ, &x.opt)
+		ins = append(ins, x)
 	}
 	rows.Close()
 
-	rows, err = db.Query(`SELECT tag, type, options_json FROM inbounds WHERE node_id=? AND enabled=1 ORDER BY tag`, nodeID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var tag, typ, optsJSON string
-		rows.Scan(&tag, &typ, &optsJSON)
-		var opts map[string]any
-		if err := json.Unmarshal([]byte(optsJSON), &opts); err != nil {
-			return nil, fmt.Errorf("inbound %s: %w", tag, err)
-		}
-		uj, err := usersJSON(typ, opts, users)
+	policies := map[int64]*pb.UserPolicy{}
+	for _, in := range ins {
+		var users []specUser
+		urows, err := db.Query(`SELECT DISTINCT u.id, u.uuid, u.password, u.flow, u.speed_up, u.speed_down, u.device_limit
+			FROM users u JOIN user_groups ug ON ug.user_id=u.id JOIN group_inbounds gi ON gi.group_id=ug.group_id
+			WHERE gi.inbound_id=? AND u.enabled=1 AND u.status='active' ORDER BY u.id`, in.id)
 		if err != nil {
-			return nil, fmt.Errorf("inbound %s: %w", tag, err)
+			return nil, err
 		}
+		for urows.Next() {
+			var u specUser
+			var su, sd, dl int64
+			urows.Scan(&u.ID, &u.UUID, &u.Password, &u.Flow, &su, &sd, &dl)
+			users = append(users, u)
+			if su > 0 || sd > 0 || dl > 0 {
+				policies[u.ID] = &pb.UserPolicy{User: strconv.FormatInt(u.ID, 10), SpeedUp: su, SpeedDown: sd, DeviceLimit: int32(dl)}
+			}
+		}
+		urows.Close()
+		// the hidden connectivity-probe user (probe.go); never in subscriptions or stats
+		pu, pp := probeCreds(db, nodeID)
+		users = append(users, specUser{Name: probeUser, UUID: pu, Password: pp})
+
+		var opts map[string]any
+		if err := json.Unmarshal([]byte(in.opt), &opts); err != nil {
+			return nil, fmt.Errorf("inbound %s: %w", in.tag, err)
+		}
+		uj, err := usersJSON(in.typ, opts, users)
+		if err != nil {
+			return nil, fmt.Errorf("inbound %s: %w", in.tag, err)
+		}
+		ppr, _ := opts["_proxy_protocol"].(bool)
+		ins := &pb.InboundSpec{Tag: in.tag, Type: in.typ, ProxyProtocol: ppr}
+		applyCertHint(db, opts, spec, ins)
 		// keys starting with "_" are panel-only hints
 		for k := range opts {
 			if len(k) > 0 && k[0] == '_' {
@@ -146,18 +190,30 @@ func buildSpec(db *sql.DB, nodeID string) (*pb.NodeSpec, error) {
 		delete(opts, "type")
 		delete(opts, "tag")
 		ob, _ := json.Marshal(opts)
-		names := make([]string, len(users))
-		for i, u := range users {
-			names[i] = strconv.FormatInt(u.ID, 10)
+		names := make([]string, 0, len(users))
+		for _, u := range users {
+			if u.Name == "" { // the probe user is not tracked, so it is left out
+				names = append(names, strconv.FormatInt(u.ID, 10))
+			}
 		}
-		spec.Inbounds = append(spec.Inbounds, &pb.InboundSpec{
-			Tag: tag, Type: typ,
-			OptionsJson: ob, OptionsHash: shortHash([]byte(typ), ob),
-			UsersJson: uj, UsersHash: shortHash(uj),
-			UserNames: names,
-		})
+		hp := [][]byte{[]byte(in.typ), ob, []byte(fmt.Sprint(ppr))}
+		if ins.CertId != "" {
+			hp = append(hp, []byte("cert:"+ins.CertId)) // the id only: renewals keep the hash
+		}
+		ins.OptionsJson, ins.OptionsHash = ob, shortHash(hp...)
+		ins.UsersJson, ins.UsersHash, ins.UserNames = uj, shortHash(uj), names
+		spec.Inbounds = append(spec.Inbounds, ins)
 	}
+	addCertWatches(db, spec, nodeID)
 	sort.Slice(spec.Inbounds, func(i, j int) bool { return spec.Inbounds[i].Tag < spec.Inbounds[j].Tag })
+	ids := make([]int64, 0, len(policies))
+	for id := range policies {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		spec.Policies = append(spec.Policies, policies[id])
+	}
 	return spec, nil
 }
 
@@ -165,6 +221,18 @@ func specHash(s *pb.NodeSpec) string {
 	parts := [][]byte{[]byte(s.SkeletonHash)}
 	for _, in := range s.Inbounds {
 		parts = append(parts, []byte(in.Tag), []byte(in.OptionsHash), []byte(in.UsersHash))
+		if in.ProxyProtocol {
+			parts = append(parts, []byte("pp"))
+		}
+	}
+	for _, p := range s.Policies {
+		parts = append(parts, []byte(fmt.Sprintf("%s/%d/%d/%d", p.User, p.SpeedUp, p.SpeedDown, p.DeviceLimit)))
+	}
+	for _, c := range s.Certs {
+		parts = append(parts, []byte("cert:"+c.Id+"/"+c.Hash))
+	}
+	for _, w := range s.WatchCerts {
+		parts = append(parts, []byte("watch:"+w.Id+"\x00"+w.CertPath+"\x00"+w.KeyPath))
 	}
 	return shortHash(parts...)
 }

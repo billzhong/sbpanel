@@ -1,0 +1,64 @@
+#!MANAGED-CONFIG https://panel.example.com/s/tok123 interval=43200 strict=false
+
+[General]
+loglevel = notify
+dns-server = system, 223.5.5.5, 119.29.29.29
+encrypted-dns-server = https://223.5.5.5/dns-query, https://1.1.1.1/dns-query
+skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local
+exclude-simple-hostnames = true
+ipv6 = false
+internet-test-url = http://www.gstatic.com/generate_204
+proxy-test-url = http://www.gstatic.com/generate_204
+
+[Proxy]
+🇯🇵 日本 Trojan = trojan, jp.example.com, 443, password="p@ss,word", sni=jp.example.com, ws=true, ws-path=/tr, ws-headers=Host:"jp.example.com"
+🇺🇸 美国 Hysteria2 = hysteria2, us.example.com, 8443, password=hy2pass, sni=us.example.com
+🇺🇸 美国 SS2022 = ss, us.example.com, 8388, encrypt-method=2022-blake3-aes-128-gcm, password="AAAAAAAAAAAAAAAAAAAAAA==:BBBBBBBBBBBBBBBBBBBBBB==", udp-relay=true
+
+[Proxy Group]
+🚀 节点选择 = select, ♻️ 自动选择, 🇯🇵 日本, 🇺🇸 美国, 🇯🇵 日本 Trojan, 🇺🇸 美国 Hysteria2, 🇺🇸 美国 SS2022, DIRECT
+♻️ 自动选择 = url-test, 🇯🇵 日本 Trojan, 🇺🇸 美国 Hysteria2, 🇺🇸 美国 SS2022, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+🤖 AI 服务 = select, 🇺🇸 美国, 🇯🇵 日本, 🚀 节点选择
+📺 流媒体 = select, 🚀 节点选择, 🇯🇵 日本, 🇺🇸 美国
+📲 Telegram = select, 🚀 节点选择, 🇯🇵 日本, 🇺🇸 美国
+🍎 Apple = select, DIRECT, 🚀 节点选择
+Ⓜ️ Microsoft = select, DIRECT, 🚀 节点选择
+🛑 广告拦截 = select, REJECT, DIRECT
+🐟 漏网之鱼 = select, 🚀 节点选择, DIRECT
+🇯🇵 日本 = url-test, 🇯🇵 日本 Trojan, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+🇺🇸 美国 = url-test, 🇺🇸 美国 Hysteria2, 🇺🇸 美国 SS2022, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+
+[Rule]
+DOMAIN-SUFFIX,local,DIRECT
+DOMAIN-SUFFIX,lan,DIRECT
+DOMAIN-SUFFIX,localhost,DIRECT
+IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+IP-CIDR6,::1/128,DIRECT,no-resolve
+IP-CIDR6,fc00::/7,DIRECT,no-resolve
+IP-CIDR6,fe80::/10,DIRECT,no-resolve
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/AdvertisingLite/AdvertisingLite.list,🛑 广告拦截
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/OpenAI/OpenAI.list,🤖 AI 服务
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Claude/Claude.list,🤖 AI 服务
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Gemini/Gemini.list,🤖 AI 服务
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Copilot/Copilot.list,🤖 AI 服务
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Netflix/Netflix.list,📺 流媒体
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Disney/Disney.list,📺 流媒体
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/YouTube/YouTube.list,📺 流媒体
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/HBO/HBO.list,📺 流媒体
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/PrimeVideo/PrimeVideo.list,📺 流媒体
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Spotify/Spotify.list,📺 流媒体
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/TikTok/TikTok.list,📺 流媒体
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Bahamut/Bahamut.list,🐟 漏网之鱼
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Telegram/Telegram.list,📲 Telegram
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Apple/Apple.list,🍎 Apple
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Microsoft/Microsoft.list,Ⓜ️ Microsoft
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Google/Google.list,🚀 节点选择
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/Global/Global.list,🚀 节点选择
+RULE-SET,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge/China/China.list,DIRECT
+GEOIP,CN,DIRECT
+FINAL,🐟 漏网之鱼,dns-failed

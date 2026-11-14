@@ -1,9 +1,11 @@
-import { useQuery } from '@tanstack/react-query'
-import { api, type Overview, type SeriesResp, type Node } from '../lib/api'
+import type { ReactNode } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { api, type Overview, type SeriesResp, type Node, type Template, type User } from '../lib/api'
+import { filterDefs } from '../lib/users'
 import { bytes, rate, pct, duration, ago } from '../lib/fmt'
 import { go, href } from '../lib/router'
 import { Badge, Card, PageHeader, Progress, Skeleton, Stat, Empty, Button, cx } from '../ui/kit'
-import { TimeChart, ShareList } from '../ui/charts'
+import { TimeChart, ShareList, TweenBytes } from '../ui/charts'
 import { IconArrowDown, IconArrowUp, IconUsers, IconServer } from '../ui/icons'
 
 export function OverviewPage() {
@@ -13,26 +15,29 @@ export function OverviewPage() {
     queryKey: ['series', 'overview'],
     queryFn: () => api<SeriesResp>(`/traffic/series?step=300&group=total&from=${from}`),
     refetchInterval: 30000,
+    placeholderData: keepPreviousData,
   })
   const o = ov.data
   const s = series.data?.series[0]
   return (
     <>
       <PageHeader title="概览" subtitle="所有节点的实时状态与最近 24 小时流量" />
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {o ? (
           <>
-            <Stat label="今日流量" value={bytes(o.today_down + o.today_up)}
-              sub={<><IconArrowDown size={12} className="inline" /> {bytes(o.today_down)}　<IconArrowUp size={12} className="inline" /> {bytes(o.today_up)}</>} />
-            <Stat label="本月流量" value={bytes(o.month_down + o.month_up)}
-              sub={<><IconArrowDown size={12} className="inline" /> {bytes(o.month_down)}　<IconArrowUp size={12} className="inline" /> {bytes(o.month_up)}</>} />
-            <Stat label="实时速率" value={rate(o.rate_down + o.rate_up)}
-              sub={`↓ ${rate(o.rate_down)}　↑ ${rate(o.rate_up)}　${o.active_conns} 连接`} />
-            <Stat label="在线" icon={<IconUsers size={14} />} value={<>{o.online_users}<span className="text-[15px] font-normal text-subtle"> / {o.active_users} 用户</span></>}
-              sub={`${o.online_ips} 个设备 IP · 节点 ${o.nodes_online}/${o.nodes_total} 在线`} />
+            <Stat label="今日流量" value={<TweenBytes value={o.today_down + o.today_up} />}
+              sub={<Parts items={[<><IconArrowDown size={12} className="inline" /> {bytes(o.today_down)}</>, <><IconArrowUp size={12} className="inline" /> {bytes(o.today_up)}</>]} />} />
+            <Stat label="本月流量" value={<TweenBytes value={o.month_down + o.month_up} />}
+              sub={<Parts items={[<><IconArrowDown size={12} className="inline" /> {bytes(o.month_down)}</>, <><IconArrowUp size={12} className="inline" /> {bytes(o.month_up)}</>]} />} />
+            <Stat label="实时速率" value={<><TweenBytes value={o.rate_down + o.rate_up} />/s</>}
+              sub={<Parts items={[<><IconArrowDown size={12} className="inline" /> {rate(o.rate_down)}</>, <><IconArrowUp size={12} className="inline" /> {rate(o.rate_up)}</>, `${o.active_conns} 连接`]} />} />
+            <Stat label="在线用户" icon={<IconUsers size={14} />} value={<>{o.online_users}<span className="text-[15px] font-normal text-subtle"> / {o.active_users}</span></>}
+              sub={<Parts items={[`${o.online_ips} 个设备 IP`, `节点 ${o.nodes_online}/${o.nodes_total} 在线`]} />} />
           </>
         ) : [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[112px]" />)}
       </div>
+
+      {o && <Attention o={o} last={s?.points[s.points.length - 1]} />}
 
       <Card className="mt-4" title="24 小时流量" action={<a href={href('traffic')} className="text-[13px] text-accent hover:underline">流量分析 →</a>}>
         {s ? (
@@ -72,6 +77,65 @@ export function OverviewPage() {
         {o?.nodes.map((n) => <NodeCard key={n.id} n={n} />)}
       </div>
     </>
+  )
+}
+
+/** Sub-line segments that wrap as whole units instead of breaking inside a number. */
+function Parts({ items }: { items: ReactNode[] }) {
+  return <span className="flex flex-wrap gap-x-3 gap-y-0.5">{items.map((x, i) => <span key={i} className="whitespace-nowrap">{x}</span>)}</span>
+}
+
+/** "What needs my attention?" Only rendered when something does; otherwise a single green line. */
+function Attention({ o, last }: { o: Overview; last?: [number, number, number] }) {
+  const templates = useQuery({ queryKey: ['templates'], queryFn: () => api<Template[]>('/templates') })
+  const users = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/users'), refetchInterval: 30000 })
+  const en = o.nodes.filter((n) => n.enrolled)
+  const offline = en.filter((n) => !n.online)
+  const failing = en.filter((n) => n.online && n.apply_error)
+  const pending = o.nodes.filter((n) => !n.enrolled)
+  const hot = o.nodes.filter((n) => n.traffic_limit > 0 && (n.month_up + n.month_down) / n.traffic_limit >= 0.8)
+  const count = (id: string) => (users.data ?? []).filter(filterDefs.find((f) => f.id === id)!.test).length
+  const drafts = (templates.data ?? []).filter((t) => t.has_draft).length
+  type Item = { tone: 'bad' | 'warn' | 'neutral'; title: string; detail?: string; to: string; cta: string }
+  const items: Item[] = []
+  if (offline.length) items.push({ tone: 'bad', title: `${offline.length} 个节点离线`, detail: offline.map((n) => n.name).join('、'), to: href('nodes'), cta: '查看节点' })
+  if (failing.length) items.push({ tone: 'bad', title: `${failing.length} 个节点配置下发失败`, detail: failing.map((n) => `${n.name}：${n.apply_error}`).join('；'), to: href('nodes'), cta: '查看错误' })
+  if (hot.length) items.push({ tone: 'warn', title: `${hot.length} 个节点本月流量 ≥80%`, detail: hot.map((n) => `${n.name} ${pct(n.month_up + n.month_down, n.traffic_limit).toFixed(0)}%`).join('、'), to: href('nodes'), cta: '查看节点' })
+  const exp = count('expiring'), q80 = count('quota80'), lim = count('limited')
+  if (exp) items.push({ tone: 'warn', title: `${exp} 个用户 7 天内到期`, to: href('users', { f: 'expiring', sort: 'expire' }), cta: '去续期' })
+  if (q80) items.push({ tone: 'warn', title: `${q80} 个用户额度已用 ≥80%`, to: href('users', { f: 'quota80', sort: 'usage' }), cta: '查看' })
+  if (lim) items.push({ tone: 'bad', title: `${lim} 个用户已超额`, detail: '超额用户已从所有节点移除', to: href('users', { f: 'limited' }), cta: '查看' })
+  if (pending.length) items.push({ tone: 'neutral', title: `${pending.length} 个节点等待接入`, to: href('nodes'), cta: '查看接入命令' })
+  if (drafts) items.push({ tone: 'neutral', title: `${drafts} 个模板草稿待发布`, to: href('templates'), cta: '去发布' })
+  if (o.nodes_total === 0) return null
+  const dot = { bad: 'bg-bad', warn: 'bg-warn', neutral: 'bg-muted' }
+  if (items.length === 0) {
+    return (
+      <div className="mt-4 flex animate-content-in flex-wrap items-center gap-2 rounded-[16px] border bg-good/6 px-4 py-3 text-[13px]">
+        <span className="h-2 w-2 rounded-full bg-good" />
+        <span className="font-medium text-good">一切正常</span>
+        <span className="text-subtle">· {o.nodes_online} 个节点在线</span>
+        {last && <span className="text-subtle tabular">· 最近 5 分钟 ↓ {bytes(last[2])} ↑ {bytes(last[1])}</span>}
+      </div>
+    )
+  }
+  return (
+    <Card className="mt-4 animate-content-in" title={<span className="flex items-center gap-2">需要关注 <Badge tone={items.some((i) => i.tone === 'bad') ? 'bad' : 'warn'}>{items.length}</Badge></span>} pad={false}>
+      <ul className="pb-2">
+        {items.map((x) => (
+          <li key={x.title}>
+            <a href={x.to} className="group flex items-center gap-3 px-5 py-2.5 text-[13px] outline-none transition-colors duration-(--dur-1) hover:bg-hl-low focus-visible:bg-hl-low">
+              <span className={cx('h-2 w-2 shrink-0 rounded-full', dot[x.tone])} />
+              <span className="min-w-0 flex-1">
+                <span className="font-medium">{x.title}</span>
+                {x.detail && <span className="mt-0.5 block truncate text-xs text-muted">{x.detail}</span>}
+              </span>
+              <span className="shrink-0 text-accent transition-transform duration-(--dur-1) group-hover:translate-x-0.5">{x.cta} →</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </Card>
   )
 }
 

@@ -1,0 +1,29 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: web
+        run: cd web && pnpm install --frozen-lockfile && pnpm build
+      - name: vet
+        run: go vet -tags with_quic,with_utls,with_acme ./...
+      - name: test
+        run: go test -tags with_quic,with_utls,with_acme -count=1 ./...
+      - name: installer syntax
+        run: sh -n install.sh

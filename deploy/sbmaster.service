@@ -1,0 +1,18 @@
+[Unit]
+Description=sbpanel master
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=-/etc/sbmaster.env
+ExecStart=/usr/local/bin/sbmaster --data /var/lib/sbmaster --web ${SBM_WEB} --grpc ${SBM_GRPC} --public-grpc ${SBM_PUBLIC_GRPC}
+Environment=SBM_WEB=127.0.0.1:8080 SBM_GRPC=:9443 SBM_PUBLIC_GRPC=
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sbmaster
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

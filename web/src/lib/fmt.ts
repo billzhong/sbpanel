@@ -40,7 +40,7 @@ export function ago(ts: number): string {
 export function duration(sec: number): string {
   if (!sec) return '—'
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60)
-  return d > 0 ? `${d}天 ${h}时` : h > 0 ? `${h}时 ${m}分` : `${m}分`
+  return d > 0 ? `${d} 天 ${h} 小时` : h > 0 ? `${h} 小时 ${m} 分` : `${m} 分`
 }
 
 export function axisTime(ts: number, step: number): string {
@@ -57,3 +57,15 @@ export function parseSize(s: string): number {
   const mult: Record<string, number> = { '': 1024 ** 3, K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4, P: 1024 ** 5 }
   return Math.round(parseFloat(m[1]) * mult[m[2].toUpperCase()])
 }
+
+/** "3 天后" / "已过期 2 天" / "永久" for an expiry timestamp. */
+export function expiresIn(ts: number): string {
+  if (!ts) return '永久'
+  const s = ts - Date.now() / 1000
+  const a = Math.abs(s)
+  const unit = a >= 86400 ? `${Math.floor(a / 86400)} 天` : a >= 3600 ? `${Math.floor(a / 3600)} 小时` : `${Math.max(1, Math.floor(a / 60))} 分钟`
+  return s >= 0 ? `${unit}后` : `已过期 ${unit}`
+}
+
+export const DAY = 86400
+export const GB = 1024 ** 3

@@ -6,8 +6,29 @@
     <meta name="color-scheme" content="light dark" />
     <title>sbpanel</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23286983'/%3E%3Cpath d='M9 20c3-8 11-8 14 0' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <!--sbp-ui-->
     <script>
-      try { const t = localStorage.getItem('sbp-theme'); if (t) document.documentElement.dataset.theme = t } catch {}
+      /* Appearance boot (keep in sync with src/lib/appearance.ts): runs before CSS so the first paint is final.
+         Server default (window.__SBP_UI, injected above by sbmaster) <- this browser (localStorage 'sbp-ui'). */
+      (function () {
+        var d = document.documentElement, ui = {}
+        try { ui = Object.assign({}, window.__SBP_UI || {}) } catch (e) {}
+        try {
+          var own = JSON.parse(localStorage.getItem('sbp-ui') || 'null'), legacy = localStorage.getItem('sbp-theme')
+          if (own) Object.assign(ui, own); else if (legacy) ui.mode = legacy
+        } catch (e) {}
+        if (ui.mode === 'light' || ui.mode === 'dark') d.dataset.theme = ui.mode
+        d.dataset.palette = ui.palette || 'neutral'
+        if (ui.radius && ui.radius !== 'default') d.dataset.radius = ui.radius
+        if (ui.density && ui.density !== 'default') d.dataset.density = ui.density
+        var a = ui.accent, hex = /^#[0-9a-f]{6}$/i
+        if (a && a.light && a.dark && hex.test(a.light.accent) && hex.test(a.dark.accent)) {
+          var v = function (x) { return '--accent:' + x.accent + ';--accent-text:' + x.accentText + ';--on-accent:' + x.onAccent + ';--focus:' + x.accentText + ';--pine:' + x.accent + ';' }
+          var s = document.createElement('style'); s.id = 'sbp-accent'
+          s.textContent = ':root:root:root:root{' + v(a.light) + '}@media (prefers-color-scheme: dark){:root:root:root:root:not([data-theme="light"]){' + v(a.dark) + '}}:root:root:root:root[data-theme="dark"]{' + v(a.dark) + '}'
+          document.head.appendChild(s)
+        }
+      })()
     </script>
   </head>
   <body>

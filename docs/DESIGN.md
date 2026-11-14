@@ -283,7 +283,7 @@ settings(key, value)
 - 状态切换：超额 → `limited`，到期 → `expired`，管理员禁用 → `disabled`。切换后在用户集合中移除该用户，生成新 revision，同时发送 `Kick`。
 - 重置周期：日、周、月、按注册日滚动月。重置**只在 master 侧开启新的计费周期**，**从不向 node 下发 reset**，所以不存在「重置命令丢失」的问题。
 - 设备数：master 汇总所有节点的在线 IP（60 秒 TTL）。超过限制时按策略处理（❓ 拒绝新 IP，或者踢掉最早的 IP），由 node 执行。
-- 节点级配额：节点有自己的月流量上限和重置日，到 80% 和 100% 时通知（对应你在 dmit 上的 500 GB 场景）。
+- 节点级配额：节点有自己的月流量上限和重置日，到 80% 和 100% 时通知（例如 VPS 套餐每月 500 GB）。
 - 告警：新 IP 登录、持续高速率（xmon 里已有的逻辑迁移过来）、节点离线、证书即将过期、spool 积压。渠道：Telegram 和 Webhook。
 
 ---
@@ -380,7 +380,7 @@ sbpanel/
 | **M1 内核 + 统计闭环** | node 内嵌 sing-box、单入站 vless-reality、tracker、aggregator、spool、幂等 ingest、概览和流量页初版 | 端到端测试：发 100 MB，master 记账误差为 0；kill master 10 分钟再恢复，流量不丢 |
 | **M2 用户与订阅** | 用户 CRUD、分组、凭据、配额、到期、重置、热更新（B + SS），多协议入站表单，hosts、订阅多格式 | 新建用户 → 5 秒内能连上；超额后立刻断线 |
 | **M3 配置与分析** | 出站、路由、DNS 编辑器，暂存 + diff + 应用，蓝绿重建；域名、来源 IP 维度分析，实时连接，在线 IP 与设备数限制，ACME | 和 3x-ui 日常功能对齐 |
-| **M4 运维** | 补丁版 UpdateUsers（方案 A）、限速、TG 通知、备份、2FA、审计、i18n、移动端 | 能在 dmit 上替换 3x-ui 试运行 |
+| **M4 运维** | 补丁版 UpdateUsers（方案 A）、限速、TG 通知、备份、2FA、审计、i18n、移动端 | 能在一台真实 VPS 上替换 3x-ui 试运行 |
 | **M5 迁移** | 从 3x-ui 导入（用户、UUID、subId 保持不变，订阅链接不变） | 客户端无感切换 |
 
 ---
@@ -390,7 +390,7 @@ sbpanel/
 | # | 问题 | 建议 |
 |---|---|---|
 | D1 | 用户热更新：打薄补丁（A）还是只做单入站重建（B） | 先做 B，M4 补上 A |
-| D2 | 默认用 SQLite 还是 Postgres | 默认 SQLite（单文件、易备份），Store 接口同时支持 Postgres；dmit 上已有 Postgres，可以直接复用 |
+| D2 | 默认用 SQLite 还是 Postgres | 默认 SQLite（单文件、易备份），Store 接口同时支持 Postgres |
 | D3 | 设备数超限：拒绝新 IP，还是踢掉最早的 IP | 默认拒绝新 IP |
 | D4 | 项目名、仓库位置（建议 `~/Code/sbpanel`，私有 GitHub 仓库） | 你定 |
 | D5 | 迁移：是否要保留现有 3x-ui 的 UUID 和 subId，让客户端零改动 | 建议保留（M5） |
@@ -398,3 +398,16 @@ sbpanel/
 | R2 | `name` 为空时 `metadata.User` 为空 | 下发时强制 `name = user_id` |
 | R3 | 域名维度依赖嗅探 | 骨架配置强制加 sniff；嗅探不到的连接归到目标 IP |
 | R4 | 嵌入 sing-box 后 node 二进制约 40–60 MB | 可接受 |
+
+---
+
+## 13. 实施状态（2026-11-14）
+
+M0–M5 已全部实现，测试见 README「测试覆盖」。和本设计相比的落地差异：
+
+- **D1**：A、B 两种方案都已实现。vless、vmess、trojan 用 `internal/node/hot/` 里的补丁副本（基于 sing-box 1.14.4，用户改为按 name 作键，新增 `UpdateUsersJSON`）；Shadowsocks 用官方的 `ManagedSSMServer`；hysteria2、tuic、anytls、naive 退回到单入站重建。**升级 sing-box 时需要同步这三个文件**。
+- **D2**：目前只实现了 SQLite（modernc，纯 Go）；Postgres 适配层没有做。
+- **D3**：默认拒绝新设备，设置里可以切换成踢掉最早的设备。
+- **订阅**：没有做可编辑的订阅模板（`sub_templates`），sing-box 和 mihomo 用内置的合理默认配置。
+- **计费口径**：统计的是代理负载字节（和 Xray 的 stats 一致），不包含 TLS/QUIC 的传输开销。
+- **未做**：i18n（界面只有中文）；规则测试器（输入域名查看命中哪条规则）；ClickHouse 存储；UserDelta 增量推送（每次都下发全量 spec，配合 hash 判断，几百个用户时足够）。

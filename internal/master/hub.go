@@ -31,11 +31,15 @@ type session struct {
 	connectedAt time.Time
 	remote      string
 
-	mu     sync.Mutex
-	hello  *pb.Hello
-	hb     *pb.Heartbeat
-	lastHB time.Time
-	online []*pb.OnlineUser
+	mu         sync.Mutex
+	hello      *pb.Hello
+	hb         *pb.Heartbeat
+	lastHB     time.Time
+	online     []*pb.OnlineUser
+	conns      *pb.ConnSnapshot
+	watchUntil time.Time
+	watching   bool
+	certbot    []string // certbot lineages found on the node
 }
 
 func (s *session) snapshot() (hello *pb.Hello, hb *pb.Heartbeat, last time.Time, online []*pb.OnlineUser) {
@@ -206,6 +210,9 @@ func (h *Hub) FetchSpec(ctx context.Context, req *pb.FetchSpecRequest) (*pb.Node
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "spec: %v", err)
 	}
+	if err := h.m.fillCertMaterial(spec); err != nil {
+		return nil, status.Errorf(codes.Internal, "spec: %v", err)
+	}
 	return spec, nil
 }
 
@@ -249,12 +256,19 @@ func (h *Hub) Connect(stream pb.NodeHub_ConnectServer) error {
 	go func() {
 		ping := time.NewTicker(30 * time.Second)
 		defer ping.Stop()
+		watchTick := time.NewTicker(5 * time.Second)
+		defer watchTick.Stop()
 		for {
 			select {
 			case msg, ok := <-s.send:
 				if !ok {
 					errc <- errors.New("replaced")
 					return
+				}
+				if w, isWatch := msg.M.(*pb.MasterMsg_Watch); isWatch && w.Watch.On {
+					s.mu.Lock()
+					s.watching = true
+					s.mu.Unlock()
 				}
 				if err := stream.Send(msg); err != nil {
 					errc <- err
@@ -264,6 +278,19 @@ func (h *Hub) Connect(stream pb.NodeHub_ConnectServer) error {
 				if err := stream.Send(&pb.MasterMsg{M: &pb.MasterMsg_Ping{Ping: &pb.Ping{Ts: now()}}}); err != nil {
 					errc <- err
 					return
+				}
+			case <-watchTick.C:
+				s.mu.Lock()
+				stop := s.watching && time.Now().After(s.watchUntil)
+				if stop {
+					s.watching, s.conns = false, nil
+				}
+				s.mu.Unlock()
+				if stop {
+					if err := stream.Send(&pb.MasterMsg{M: &pb.MasterMsg_Watch{Watch: &pb.Watch{On: false}}}); err != nil {
+						errc <- err
+						return
+					}
 				}
 			case <-stream.Context().Done():
 				errc <- stream.Context().Err()
@@ -336,10 +363,28 @@ func (h *Hub) handle(s *session, msg *pb.NodeMsg) {
 			db.Exec(`UPDATE nodes SET apply_error=? WHERE id=?`, m.Apply.Error, s.nodeID)
 			addEvent(db, "apply_failed", 0, s.nodeID, m.Apply.Error)
 		}
+	case *pb.NodeMsg_Conns:
+		s.mu.Lock()
+		if s.watching {
+			s.conns = m.Conns
+		}
+		s.mu.Unlock()
+	case *pb.NodeMsg_Certs:
+		s.mu.Lock()
+		s.certbot = m.Certs.CertbotNames
+		s.mu.Unlock()
+		h.m.onCertReport(s.nodeID, m.Certs)
 	case *pb.NodeMsg_Online:
+		for i := 0; i < len(m.Online.Users); i++ {
+			if m.Online.Users[i].User == probeUser { // older nodes report the probe as online
+				m.Online.Users = append(m.Online.Users[:i], m.Online.Users[i+1:]...)
+				i--
+			}
+		}
 		s.mu.Lock()
 		s.online = m.Online.Users
 		s.mu.Unlock()
+		defer h.m.enforceDevices()
 		t := now()
 		for _, u := range m.Online.Users {
 			uid := parseUserID(u.User)
@@ -365,6 +410,16 @@ func (h *Hub) kick(users []string) {
 	defer h.mu.Unlock()
 	for _, s := range h.sessions {
 		h.trySend(s, &pb.MasterMsg{M: &pb.MasterMsg_Kick{Kick: &pb.Kick{Users: users}}})
+	}
+}
+
+// drop closes a node's control stream (used when the node is deleted).
+func (h *Hub) drop(nodeID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if s := h.sessions[nodeID]; s != nil {
+		delete(h.sessions, nodeID)
+		close(s.send)
 	}
 }
 

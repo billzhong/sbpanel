@@ -1,6 +1,7 @@
 package master
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -70,32 +71,39 @@ func (m *Master) checkSession(r *http.Request) (string, bool) {
 	return f[0], true
 }
 
-func (m *Master) auth(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := m.checkSession(r); !ok {
-			writeErr(w, http.StatusUnauthorized, "unauthorized")
-			return
-		}
-		h(w, r)
-	}
-}
+// auth requires any authenticated caller. Scope checks, API keys, IP allowlists and rate limits
+// live in guard() (apikeys.go); scopedMux applies it to every route via routeScopes (api_scopes.go).
+func (m *Master) auth(h http.HandlerFunc) http.HandlerFunc { return m.guard(scopeAny, h) }
 
+// routes registers the HTTP surface. Every /api and /mcp pattern needs an entry in routeScopes
+// (api_scopes.go) and an operation in apiDocs (openapi.go); tests enforce both.
 func (m *Master) routes() http.Handler {
-	mux := http.NewServeMux()
+	mux := m.newScopedMux()
 	a := m.auth
 	mux.HandleFunc("POST /api/auth/login", m.apiLogin)
 	mux.HandleFunc("POST /api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1})
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
-	mux.HandleFunc("GET /api/auth/me", func(w http.ResponseWriter, r *http.Request) {
-		u, ok := m.checkSession(r)
-		if !ok {
-			writeErr(w, 401, "unauthorized")
-			return
-		}
-		writeJSON(w, 200, map[string]string{"username": u})
-	})
+	mux.HandleFunc("GET /api/auth/me", a(m.apiMe))
+	mux.HandleFunc("POST /api/me/password", a(m.apiChangePassword))
+	mux.HandleFunc("POST /api/me/totp/setup", a(m.apiTOTPSetup))
+	mux.HandleFunc("POST /api/me/totp/enable", a(m.apiTOTPEnable))
+	mux.HandleFunc("POST /api/me/totp/disable", a(m.apiTOTPDisable))
+	mux.HandleFunc("GET /api/tokens", a(m.apiTokens))
+	mux.HandleFunc("POST /api/tokens", a(m.apiCreateToken))
+	mux.HandleFunc("DELETE /api/tokens/{id}", a(m.apiDeleteToken))
+	mux.HandleFunc("GET /api/scopes", a(m.apiScopes))
+	mux.HandleFunc("GET /api/openapi.json", a(m.apiOpenAPI))
+	mux.HandleFunc("POST /mcp", m.mcpHandler(mux))
+	mux.HandleFunc("GET /mcp", m.mcpNoStream)
+	mux.HandleFunc("DELETE /mcp", m.mcpNoStream)
+	mux.HandleFunc("GET /api/audit", a(m.apiAudit))
+	mux.HandleFunc("GET /api/settings", a(m.apiSettings))
+	mux.HandleFunc("PUT /api/settings", a(m.apiSaveSettings))
+	mux.HandleFunc("GET /api/backup", a(m.apiBackup))
+	mux.HandleFunc("POST /api/notify/test", a(m.apiNotifyTest))
+	mux.HandleFunc("POST /api/import/3xui", a(m.apiImport3XUI))
 
 	mux.HandleFunc("GET /api/overview", a(m.apiOverview))
 	mux.HandleFunc("GET /api/traffic/series", a(m.apiSeries))
@@ -109,6 +117,8 @@ func (m *Master) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/nodes/{id}", a(m.apiDeleteNode))
 	mux.HandleFunc("POST /api/nodes/{id}/token", a(m.apiNodeToken))
 	mux.HandleFunc("GET /api/nodes/{id}/spec", a(m.apiNodeSpec))
+	mux.HandleFunc("GET /api/nodes/{id}/conns", a(m.apiNodeConns))
+	mux.HandleFunc("POST /api/nodes/{id}/conns/close", a(m.apiCloseConns))
 
 	mux.HandleFunc("GET /api/inbounds", a(m.apiInbounds))
 	mux.HandleFunc("POST /api/inbounds", a(m.apiCreateInbound))
@@ -116,18 +126,92 @@ func (m *Master) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/inbounds/{id}", a(m.apiDeleteInbound))
 	mux.HandleFunc("POST /api/tools/reality-keypair", a(m.apiRealityKeypair))
 
+	mux.HandleFunc("GET /api/groups", a(m.apiGroups))
+	mux.HandleFunc("POST /api/groups", a(m.apiCreateGroup))
+	mux.HandleFunc("PATCH /api/groups/{id}", a(m.apiUpdateGroup))
+	mux.HandleFunc("DELETE /api/groups/{id}", a(m.apiDeleteGroup))
+
+	mux.HandleFunc("GET /api/hosts", a(m.apiHosts))
+	mux.HandleFunc("POST /api/hosts", a(m.apiSaveHost))
+	mux.HandleFunc("PUT /api/hosts/{id}", a(m.apiSaveHost))
+	mux.HandleFunc("DELETE /api/hosts/{id}", a(m.apiDeleteHost))
+
+	mux.HandleFunc("GET /api/templates", a(m.apiTemplates))
+	mux.HandleFunc("POST /api/templates", a(m.apiCreateTemplate))
+	mux.HandleFunc("PATCH /api/templates/{id}", a(m.apiSaveTemplateDraft))
+	mux.HandleFunc("POST /api/templates/{id}/apply", a(m.apiApplyTemplate))
+	mux.HandleFunc("DELETE /api/templates/{id}", a(m.apiDeleteTemplate))
+
+	mux.HandleFunc("GET /api/routing/catalog", a(m.apiRoutingCatalog))
+	mux.HandleFunc("GET /api/routing/nodes", a(m.apiRoutingNodes))
+	mux.HandleFunc("GET /api/routing/profiles", a(m.apiProfiles))
+	mux.HandleFunc("POST /api/routing/profiles", a(m.apiCreateProfile))
+	mux.HandleFunc("GET /api/routing/profiles/{id}", a(m.apiProfile))
+	mux.HandleFunc("PATCH /api/routing/profiles/{id}", a(m.apiUpdateProfile))
+	mux.HandleFunc("DELETE /api/routing/profiles/{id}", a(m.apiDeleteProfile))
+	mux.HandleFunc("PUT /api/routing/profiles/{id}/draft", a(m.apiSaveProfileDraft))
+	mux.HandleFunc("DELETE /api/routing/profiles/{id}/draft", a(m.apiDiscardProfileDraft))
+	mux.HandleFunc("POST /api/routing/profiles/{id}/preview", a(m.apiPreviewProfile))
+	mux.HandleFunc("POST /api/routing/profiles/{id}/publish", a(m.apiPublishProfile))
+	mux.HandleFunc("GET /api/routing/profiles/{id}/history", a(m.apiProfileHistory))
+	mux.HandleFunc("POST /api/routing/profiles/{id}/history/{hid}/restore", a(m.apiRestoreProfile))
+
 	mux.HandleFunc("GET /api/users", a(m.apiUsers))
 	mux.HandleFunc("POST /api/users", a(m.apiCreateUser))
+	mux.HandleFunc("POST /api/users/bulk", a(m.apiBulkUsers))
+	mux.HandleFunc("POST /api/users/batch", a(m.apiBatchUsers))
 	mux.HandleFunc("GET /api/users/{id}", a(m.apiUser))
+	mux.HandleFunc("GET /api/users/{id}/sub", a(m.apiUserSub))
 	mux.HandleFunc("PATCH /api/users/{id}", a(m.apiUpdateUser))
 	mux.HandleFunc("DELETE /api/users/{id}", a(m.apiDeleteUser))
 	mux.HandleFunc("POST /api/users/{id}/kick", a(m.apiKickUser))
 
+	// subscriptions (public, token in path); /sub/ keeps 3x-ui links working
+	mux.HandleFunc("GET /s/{token}", m.handleSub)
+	mux.HandleFunc("GET /sub/{token}", m.handleSub)
+	mux.HandleFunc("GET /s/_t/{ref}/{path...}", m.handleThemeAsset)
+
+	// subscription-page themes (admin)
+	mux.HandleFunc("GET /api/sub-themes", a(m.apiSubThemes))
+	mux.HandleFunc("POST /api/sub-themes", a(m.apiUploadSubTheme))
+	mux.HandleFunc("PUT /api/sub-themes/active", a(m.apiActivateSubTheme))
+	mux.HandleFunc("PUT /api/sub-themes/{id}/settings", a(m.apiSaveSubThemeSettings))
+	mux.HandleFunc("DELETE /api/sub-themes/{id}", a(m.apiDeleteSubTheme))
+	mux.HandleFunc("GET /api/sub-themes/{id}/preview", a(m.apiPreviewSubTheme))
+
+	m.certRoutes(mux, a) // domains, certificates, DNS, connectivity probe (certroutes.go)
+
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { writeErr(w, 404, "not found") })
 	if m.cfg.Web != nil {
-		mux.Handle("/", spaHandler(m.cfg.Web))
+		mux.Handle("/", spaHandler(m.cfg.Web, m.uiBootScript))
 	}
-	return securityHeaders(mux)
+	return securityHeaders(rejectOpaqueOrigin(mux))
+}
+
+// rejectOpaqueOrigin refuses state-changing /api calls from an opaque origin ("Origin: null"), i.e.
+// from sandboxed documents such as subscription-page themes. Defense in depth on top of SameSite.
+func rejectOpaqueOrigin(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+		default:
+			if r.Header.Get("Origin") == "null" && strings.HasPrefix(r.URL.Path, "/api/") {
+				writeErr(w, http.StatusForbidden, "forbidden origin")
+				return
+			}
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// uiBootScript is injected into index.html so the server-wide appearance default applies before
+// first paint (the inline boot script in index.html reads window.__SBP_UI).
+func (m *Master) uiBootScript() string {
+	v, err := validateAppearance(settingOr(m.db, "ui_appearance", ""))
+	if err != nil || v == "" {
+		v = "{}"
+	}
+	return "<script>window.__SBP_UI=" + v + "</script>"
 }
 
 func securityHeaders(h http.Handler) http.Handler {
@@ -140,7 +224,7 @@ func securityHeaders(h http.Handler) http.Handler {
 }
 
 // spaHandler serves built assets and falls back to index.html for client routes.
-func spaHandler(fsys fs.FS) http.Handler {
+func spaHandler(fsys fs.FS, inject func() string) http.Handler {
 	files := http.FileServer(http.FS(fsys))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/")
@@ -161,23 +245,39 @@ func spaHandler(fsys fs.FS) http.Handler {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
+		if inject != nil {
+			b = bytes.Replace(b, []byte("<!--sbp-ui-->"), []byte(inject()), 1)
+		}
 		w.Write(b)
 	})
 }
 
 func (m *Master) apiLogin(w http.ResponseWriter, r *http.Request) {
-	var req struct{ Username, Password string }
+	var req struct{ Username, Password, Code string }
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, 400, "bad request")
 		return
 	}
-	var hash string
-	err := m.db.QueryRow(`SELECT pass_hash FROM admins WHERE username=?`, req.Username).Scan(&hash)
+	var hash, totp string
+	err := m.db.QueryRow(`SELECT pass_hash, totp_secret FROM admins WHERE username=?`, req.Username).Scan(&hash, &totp)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
 		time.Sleep(500 * time.Millisecond)
+		m.db.Exec(`INSERT INTO audit_log(ts, admin, action, target, ip) VALUES(?,?,?,?,?)`, now(), req.Username, "login.failed", "", clientIP(r))
 		writeErr(w, 401, "用户名或密码错误")
 		return
 	}
+	if totp != "" {
+		if req.Code == "" {
+			writeJSON(w, 401, map[string]any{"error": "请输入两步验证码", "need_totp": true})
+			return
+		}
+		if !totpValid(totp, req.Code, time.Now()) {
+			time.Sleep(500 * time.Millisecond)
+			writeJSON(w, 401, map[string]any{"error": "两步验证码不正确", "need_totp": true})
+			return
+		}
+	}
+	m.db.Exec(`INSERT INTO audit_log(ts, admin, action, target, ip) VALUES(?,?,?,?,?)`, now(), req.Username, "login", "", clientIP(r))
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: m.newSession(req.Username), Path: "/", HttpOnly: true,
 		SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",

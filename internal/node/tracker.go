@@ -3,9 +3,14 @@ package node
 import (
 	"context"
 	"net"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/time/rate"
+
+	"sbpanel/internal/pb"
 
 	"github.com/sagernet/sing-box/adapter"
 	tun "github.com/sagernet/sing-tun"
@@ -38,10 +43,80 @@ type Tracker struct {
 	nextID atomic.Uint64
 
 	totalUp, totalDown atomic.Int64
+
+	polMu    sync.RWMutex
+	policies map[string]*userPolicy
+
+	rejected atomic.Int64 // connections refused by the device limit
+}
+
+// userPolicy holds per-user limits; limiters are shared by all of the user's
+// connections on this node so the cap applies to the user, not per connection.
+type userPolicy struct {
+	deviceLimit int
+	up, down    *rate.Limiter
+	upBps       int64
+	downBps     int64
 }
 
 func NewTracker() *Tracker {
-	return &Tracker{active: map[uint64]*connRec{}}
+	return &Tracker{active: map[uint64]*connRec{}, policies: map[string]*userPolicy{}}
+}
+
+func newLimiter(bps int64) *rate.Limiter {
+	if bps <= 0 {
+		return nil
+	}
+	burst := int(bps)
+	if burst < 64<<10 {
+		burst = 64 << 10 // at least one large read
+	}
+	return rate.NewLimiter(rate.Limit(bps), burst)
+}
+
+// SetPolicies replaces user policies, keeping existing limiters whose rate is unchanged.
+func (t *Tracker) SetPolicies(ps []*pb.UserPolicy) {
+	t.polMu.Lock()
+	defer t.polMu.Unlock()
+	next := make(map[string]*userPolicy, len(ps))
+	for _, p := range ps {
+		old := t.policies[p.User]
+		np := &userPolicy{deviceLimit: int(p.DeviceLimit), upBps: p.SpeedUp, downBps: p.SpeedDown}
+		if old != nil && old.upBps == p.SpeedUp {
+			np.up = old.up
+		} else {
+			np.up = newLimiter(p.SpeedUp)
+		}
+		if old != nil && old.downBps == p.SpeedDown {
+			np.down = old.down
+		} else {
+			np.down = newLimiter(p.SpeedDown)
+		}
+		next[p.User] = np
+	}
+	t.policies = next
+}
+
+func (t *Tracker) policy(user string) *userPolicy {
+	t.polMu.RLock()
+	defer t.polMu.RUnlock()
+	return t.policies[user]
+}
+
+// overDeviceLimit reports whether a new connection from ip would exceed the limit.
+func (t *Tracker) overDeviceLimit(user, ip string, limit int) bool {
+	if limit <= 0 || user == "" {
+		return false
+	}
+	ips := map[string]bool{}
+	t.mu.Lock()
+	for _, r := range t.active {
+		if r.user == user {
+			ips[r.srcIP] = true
+		}
+	}
+	t.mu.Unlock()
+	return !ips[ip] && len(ips) >= limit
 }
 
 var _ adapter.ConnectionTracker = (*Tracker)(nil)
@@ -94,10 +169,24 @@ func (t *Tracker) leave(r *connRec) {
 }
 
 func (t *Tracker) RoutedConnection(ctx context.Context, conn net.Conn, m adapter.InboundContext, rule adapter.Rule, out adapter.Outbound) net.Conn {
+	if m.User == ProbeUser {
+		return conn // the panel's connectivity probe: not counted, not online
+	}
 	r := t.newRec(m, rule, out)
+	p := t.policy(r.user)
+	if p != nil && t.overDeviceLimit(r.user, r.srcIP, p.deviceLimit) {
+		t.rejected.Add(1)
+		conn.Close()
+		return conn
+	}
+	var inner net.Conn = conn
+	if p != nil && (p.up != nil || p.down != nil) {
+		// upload = bytes read from the client side; download = bytes written to it
+		inner = &limitedConn{Conn: conn, ctx: ctx, read: p.up, write: p.down}
+	}
 	c := &trackedConn{
-		ExtendedConn: bufio.NewInt64CounterConn(conn, []*atomic.Int64{&r.up, &t.totalUp}, []*atomic.Int64{&r.down, &t.totalDown}),
-		t:            t, r: r,
+		ExtendedConn: bufio.NewInt64CounterConn(inner, []*atomic.Int64{&r.up, &t.totalUp}, []*atomic.Int64{&r.down, &t.totalDown}),
+		t:            t, r: r, limited: inner != conn,
 	}
 	r.closer = c
 	t.join(r)
@@ -105,10 +194,23 @@ func (t *Tracker) RoutedConnection(ctx context.Context, conn net.Conn, m adapter
 }
 
 func (t *Tracker) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, m adapter.InboundContext, rule adapter.Rule, out adapter.Outbound) N.PacketConn {
+	if m.User == ProbeUser {
+		return conn
+	}
 	r := t.newRec(m, rule, out)
+	p := t.policy(r.user)
+	if p != nil && t.overDeviceLimit(r.user, r.srcIP, p.deviceLimit) {
+		t.rejected.Add(1)
+		conn.Close()
+		return conn
+	}
+	var inner N.PacketConn = conn
+	if p != nil && (p.up != nil || p.down != nil) {
+		inner = &limitedPacketConn{PacketConn: conn, ctx: ctx, read: p.up, write: p.down}
+	}
 	c := &trackedPacketConn{
-		PacketConn: bufio.NewInt64CounterPacketConn(conn, []*atomic.Int64{&r.up, &t.totalUp}, nil, []*atomic.Int64{&r.down, &t.totalDown}, nil),
-		t:          t, r: r,
+		PacketConn: bufio.NewInt64CounterPacketConn(inner, []*atomic.Int64{&r.up, &t.totalUp}, nil, []*atomic.Int64{&r.down, &t.totalDown}, nil),
+		t:          t, r: r, limited: inner != conn,
 	}
 	r.closer = c
 	t.join(r)
@@ -165,9 +267,10 @@ func (t *Tracker) ActiveCount() int {
 
 type trackedConn struct {
 	N.ExtendedConn
-	t    *Tracker
-	r    *connRec
-	once sync.Once
+	t       *Tracker
+	r       *connRec
+	once    sync.Once
+	limited bool
 }
 
 func (c *trackedConn) Close() error {
@@ -175,15 +278,18 @@ func (c *trackedConn) Close() error {
 	return c.ExtendedConn.Close()
 }
 
-func (c *trackedConn) Upstream() any           { return c.ExtendedConn }
-func (c *trackedConn) ReaderReplaceable() bool { return true }
-func (c *trackedConn) WriterReplaceable() bool { return true }
+func (c *trackedConn) Upstream() any { return c.ExtendedConn }
+
+// A rate-limited connection must not be bypassed by splice/readv fast paths.
+func (c *trackedConn) ReaderReplaceable() bool { return !c.limited }
+func (c *trackedConn) WriterReplaceable() bool { return !c.limited }
 
 type trackedPacketConn struct {
 	N.PacketConn
-	t    *Tracker
-	r    *connRec
-	once sync.Once
+	t       *Tracker
+	r       *connRec
+	once    sync.Once
+	limited bool
 }
 
 func (c *trackedPacketConn) Close() error {
@@ -192,5 +298,24 @@ func (c *trackedPacketConn) Close() error {
 }
 
 func (c *trackedPacketConn) Upstream() any           { return c.PacketConn }
-func (c *trackedPacketConn) ReaderReplaceable() bool { return true }
-func (c *trackedPacketConn) WriterReplaceable() bool { return true }
+func (c *trackedPacketConn) ReaderReplaceable() bool { return !c.limited }
+func (c *trackedPacketConn) WriterReplaceable() bool { return !c.limited }
+
+// Snapshot lists active connections, newest first (at most max).
+func (t *Tracker) Snapshot(max int) *pb.ConnSnapshot {
+	t.mu.Lock()
+	out := make([]*pb.ConnInfo, 0, len(t.active))
+	for _, r := range t.active {
+		out = append(out, &pb.ConnInfo{Id: r.id, User: r.user, Inbound: r.inbound, Outbound: r.outbound, Network: r.network,
+			Host: r.host, Port: uint32(r.port), SrcIp: r.srcIP, Rule: r.rule, Start: r.start.Unix(), Up: r.up.Load(), Down: r.down.Load()})
+	}
+	total := len(t.active)
+	t.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Start > out[j].Start || (out[i].Start == out[j].Start && out[i].Id > out[j].Id)
+	})
+	if len(out) > max {
+		out = out[:max]
+	}
+	return &pb.ConnSnapshot{Conns: out, Total: int64(total)}
+}
