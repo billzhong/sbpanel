@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "sbpanel-demo", "url": "http://127.0.0.1:28080" },
+    { "name": "web-dev", "runtimeExecutable": "pnpm", "runtimeArgs": ["--dir", "web", "dev", "--port", "5173"], "port": 5173 }
+  ]
+}

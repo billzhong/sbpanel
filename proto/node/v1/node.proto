@@ -1,0 +1,163 @@
+syntax = "proto3";
+
+package sbpanel.node.v1;
+
+option go_package = "sbpanel/internal/pb;pb";
+
+// Enrollment: the only RPC callable without a client certificate.
+service Enroll {
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+}
+
+// NodeHub: every call requires the node's client certificate (mTLS).
+// The node always dials the master.
+service NodeHub {
+  // Long-lived control stream.
+  rpc Connect(stream NodeMsg) returns (stream MasterMsg);
+  // Durable traffic report; the node deletes it from its spool only after Ack.
+  rpc PushTraffic(TrafficReport) returns (Ack);
+  // Desired state for this node.
+  rpc FetchSpec(FetchSpecRequest) returns (NodeSpec);
+  // Certificate renewal before expiry.
+  rpc Renew(RenewRequest) returns (EnrollResponse);
+}
+
+message EnrollRequest {
+  string token = 1;
+  bytes csr_der = 2;
+  string hostname = 3;
+}
+
+message EnrollResponse {
+  string node_id = 1;
+  bytes cert_der = 2;
+  bytes ca_der = 3;
+}
+
+message RenewRequest { bytes csr_der = 1; }
+
+message NodeMsg {
+  oneof m {
+    Hello hello = 1;
+    Heartbeat heartbeat = 2;
+    ApplyResult apply = 3;
+    OnlineSnapshot online = 4;
+  }
+}
+
+message MasterMsg {
+  oneof m {
+    SpecAvailable spec = 1;
+    Kick kick = 2;
+    Ping ping = 3;
+  }
+}
+
+message Hello {
+  string version = 1;
+  string singbox_version = 2;
+  uint64 applied_revision = 3;
+  string hostname = 4;
+  string os = 5;
+  string arch = 6;
+  string boot_id = 7;
+}
+
+message SysInfo {
+  double cpu_pct = 1;
+  uint64 mem_used = 2;
+  uint64 mem_total = 3;
+  double load1 = 4;
+  uint64 uptime = 5;
+  uint64 net_rx = 6;  // bytes, cumulative since boot
+  uint64 net_tx = 7;
+  uint64 disk_used = 8;
+  uint64 disk_total = 9;
+}
+
+message Heartbeat {
+  uint64 applied_revision = 1;
+  SysInfo sys = 2;
+  uint64 spool_backlog = 3;
+  int64 active_conns = 4;
+  int64 rate_up = 5;    // bytes/s through the core
+  int64 rate_down = 6;
+  string apply_error = 7;
+}
+
+message ApplyResult {
+  uint64 revision = 1;
+  bool ok = 2;
+  string error = 3;
+}
+
+message OnlineUser {
+  string user = 1;
+  repeated string ips = 2;
+}
+
+message OnlineSnapshot { repeated OnlineUser users = 1; }
+
+message SpecAvailable { uint64 revision = 1; }
+
+message Kick { repeated string users = 1; }
+
+message Ping { int64 ts = 1; }
+
+message FetchSpecRequest { uint64 have_revision = 1; }
+
+// NodeSpec is the complete desired state. sing-box options travel as JSON so the
+// master owns the schema and the node stays a thin applier.
+message NodeSpec {
+  uint64 revision = 1;
+  bytes skeleton_json = 2;   // option.Options without inbounds
+  string skeleton_hash = 3;
+  repeated InboundSpec inbounds = 4;
+}
+
+message InboundSpec {
+  string tag = 1;
+  string type = 2;
+  bytes options_json = 3;    // inbound options without "users"
+  string options_hash = 4;
+  bytes users_json = 5;      // JSON array injected as "users"
+  string users_hash = 6;
+  repeated string user_names = 7;
+}
+
+message TrafficReport {
+  string boot_id = 1;
+  uint64 seq = 2;            // persisted, strictly increasing per node
+  int64 window_start = 3;    // unix seconds
+  int64 window_end = 4;
+  repeated UserStat users = 5;
+  repeated DimStat dims = 6;
+}
+
+message UserStat {
+  string user = 1;
+  string inbound = 2;
+  string outbound = 3;
+  int64 up = 4;
+  int64 down = 5;
+  int64 conns = 6;
+}
+
+message DimStat {
+  string user = 1;
+  string inbound = 2;
+  string outbound = 3;
+  string host = 4;
+  uint32 port = 5;
+  string src_ip = 6;
+  string network = 7;
+  string rule = 8;
+  int64 up = 9;
+  int64 down = 10;
+  int64 conns = 11;
+}
+
+message Ack {
+  uint64 seq = 1;
+  bool duplicate = 2;
+}

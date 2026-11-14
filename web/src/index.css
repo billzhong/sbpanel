@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+/* Rosé Pine tokens (Dawn = light, Moon = dark), role-named after doona's palette. */
+:root {
+  color-scheme: light;
+  --base: #faf4ed;
+  --surface: #fffaf3;
+  --overlay: #f2e9e1;
+  --muted: #9893a5;
+  --subtle: #797593;
+  --text: #464261;
+  --love: #b4637a;
+  --gold: #ea9d34;
+  --rose: #d7827e;
+  --pine: #286983;
+  --foam: #56949f;
+  --iris: #907aa9;
+  --hl-low: #f4ede8;
+  --hl-med: #dfdad9;
+  --hl-high: #cecacd;
+  --accent: var(--pine);
+  --on-accent: #fffaf3;
+  --good: #0ca30c;
+  --warn: #c98500;
+  --bad: #d03b3b;
+  /* chart series (validated categorical order, light steps) */
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  --grid: #e9e3dc;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --base: #232136; --surface: #2a273f; --overlay: #393552;
+    --muted: #6e6a86; --subtle: #908caa; --text: #e0def4;
+    --love: #eb6f92; --gold: #f6c177; --rose: #ea9a97; --pine: #3e8fb0;
+    --foam: #9ccfd8; --iris: #c4a7e7;
+    --hl-low: #2a283e; --hl-med: #44415a; --hl-high: #56526e;
+    --accent: #3e8fb0; --on-accent: #fffaf3;
+    --good: #0ca30c; --warn: #fab219; --bad: #e66767;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #0ca30c; --s7: #9085e9; --s8: #e66767;
+    --grid: #3a3651;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --base: #232136; --surface: #2a273f; --overlay: #393552;
+  --muted: #6e6a86; --subtle: #908caa; --text: #e0def4;
+  --love: #eb6f92; --gold: #f6c177; --rose: #ea9a97; --pine: #3e8fb0;
+  --foam: #9ccfd8; --iris: #c4a7e7;
+  --hl-low: #2a283e; --hl-med: #44415a; --hl-high: #56526e;
+  --accent: #3e8fb0; --on-accent: #fffaf3;
+  --good: #0ca30c; --warn: #fab219; --bad: #e66767;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #0ca30c; --s7: #9085e9; --s8: #e66767;
+  --grid: #3a3651;
+}
+
+@theme inline {
+  --color-base: var(--base);
+  --color-surface: var(--surface);
+  --color-overlay: var(--overlay);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-text: var(--text);
+  --color-love: var(--love);
+  --color-gold: var(--gold);
+  --color-pine: var(--pine);
+  --color-foam: var(--foam);
+  --color-iris: var(--iris);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-hl-low: var(--hl-low);
+  --color-hl-med: var(--hl-med);
+  --color-hl-high: var(--hl-high);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --radius-card: 16px;
+  --ease-rp: cubic-bezier(.45, 0, .4, 1);
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--base);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+* { border-color: color-mix(in srgb, var(--hl-med) 70%, transparent); }
+.tabular { font-variant-numeric: tabular-nums; }
+::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+
+@keyframes rp-pop { from { opacity: 0; transform: scale(.97) translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes rp-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rp-shimmer { 0% { background-position: -200px 0; } 100% { background-position: 200px 0; } }
+.animate-pop { animation: rp-pop 250ms var(--ease-rp); }
+.animate-fade { animation: rp-fade 150ms var(--ease-rp); }
+.skeleton {
+  background: linear-gradient(90deg, var(--overlay) 0px, var(--hl-low) 80px, var(--overlay) 160px);
+  background-size: 400px 100%;
+  animation: rp-shimmer 1.4s linear infinite;
+  border-radius: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
