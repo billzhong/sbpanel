@@ -195,6 +195,10 @@ message UserPolicy {
   int64 speed_up = 2;    // bytes/s, 0 = unlimited
   int64 speed_down = 3;
   int32 device_limit = 4; // distinct source IPs on this node, 0 = unlimited
+  // inbound tags this user may not use right now (a traffic limit is used up). The user stays
+  // in those inbounds' user lists (subscriptions keep working); the node refuses their new
+  // connections there and closes the open ones.
+  repeated string blocked_inbounds = 5;
 }
 
 message InboundSpec {

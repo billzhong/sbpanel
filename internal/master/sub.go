@@ -603,14 +603,10 @@ func (m *Master) handleSub(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// lines a traffic limit closed for this user stay off client configs until it resets;
-	// the page still lists them with their usage
+	// lines a traffic limit closed for this user stay in the subscription (the node refuses
+	// them until it resets); the page marks them as used up
 	u.Blocked = m.blockedInbounds(u.ID)
-	for _, e := range all {
-		if !u.Blocked[e.Inbound] {
-			entries = append(entries, e)
-		}
-	}
+	entries = all
 	title := settingOr(m.db, "sub_title", "sbpanel")
 	h := w.Header()
 	h.Set("Cache-Control", "no-store")

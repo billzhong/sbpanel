@@ -98,6 +98,7 @@ If you don't use `%SBP_DATA%`, fetch the same object from `location.pathname + '
               "transport": "tcp|ws|grpc|http|httpupgrade|quic", "security": "reality|tls|none", "flow": "",
               "address": "la.example.com", "port": 443, "sni": "…",
               "region": { "code": "US", "flag": "🇺🇸" },          // best-effort guess from the name, or null
+              "paused": true,                                    // only when a traffic limit is used up
               "uri": "vless://…", "qr": "data:image/png;base64,…" }],
   // this period's usage per line (an inbound, however many hosts reach it), most used first
   "usage": [{ "name": "LA · Home line", "protocol": "trojan", "up": 0, "down": 0, "used": 0,
@@ -117,8 +118,8 @@ If you don't use `%SBP_DATA%`, fetch the same object from `location.pathname + '
 }
 ```
 
-- `nodes` is empty unless `user.status` is `active`, and leaves out lines closed by a traffic limit
-  (they stay in `usage` with `exhausted: true`).
+- `nodes` is empty unless `user.status` is `active`. A node whose traffic limit is used up stays in
+  the list with `"paused": true` (the server refuses it until the limit resets); `usage` marks it `exhausted`.
 - Credentials only appear inside `uri` (and its QR code).
 - `clients` follows the admin's client list in Subscriptions → Subscription page.
 - `subscription` and `clients` already reflect `selected_profile`. To switch, take the values from the

@@ -84,6 +84,7 @@ func (t *Tracker) sawProbe(m adapter.InboundContext, out adapter.Outbound) {
 // connections on this node so the cap applies to the user, not per connection.
 type userPolicy struct {
 	deviceLimit int
+	blocked     map[string]bool // inbound tags closed by a traffic limit
 	up, down    *rate.Limiter
 	upBps       int64
 	downBps     int64
@@ -105,13 +106,19 @@ func newLimiter(bps int64) *rate.Limiter {
 }
 
 // SetPolicies replaces user policies, keeping existing limiters whose rate is unchanged.
+// Connections of users on inbounds newly closed to them are closed.
 func (t *Tracker) SetPolicies(ps []*pb.UserPolicy) {
 	t.polMu.Lock()
-	defer t.polMu.Unlock()
 	next := make(map[string]*userPolicy, len(ps))
 	for _, p := range ps {
 		old := t.policies[p.User]
 		np := &userPolicy{deviceLimit: int(p.DeviceLimit), upBps: p.SpeedUp, downBps: p.SpeedDown}
+		if len(p.BlockedInbounds) > 0 {
+			np.blocked = make(map[string]bool, len(p.BlockedInbounds))
+			for _, tag := range p.BlockedInbounds {
+				np.blocked[tag] = true
+			}
+		}
 		if old != nil && old.upBps == p.SpeedUp {
 			np.up = old.up
 		} else {
@@ -125,6 +132,14 @@ func (t *Tracker) SetPolicies(ps []*pb.UserPolicy) {
 		next[p.User] = np
 	}
 	t.policies = next
+	t.polMu.Unlock()
+	t.Kick(func(r *connRec) bool { p := next[r.user]; return p != nil && p.blocked[r.inbound] })
+}
+
+// refuse reports whether a new connection must be dropped: the user's traffic limit has
+// closed this inbound, or the connection would exceed the user's device limit.
+func (t *Tracker) refuse(r *connRec, p *userPolicy) bool {
+	return p != nil && (p.blocked[r.inbound] || t.overDeviceLimit(r.user, r.srcIP, p.deviceLimit))
 }
 
 func (t *Tracker) policy(user string) *userPolicy {
@@ -205,7 +220,7 @@ func (t *Tracker) RoutedConnection(ctx context.Context, conn net.Conn, m adapter
 	}
 	r := t.newRec(m, rule, out)
 	p := t.policy(r.user)
-	if p != nil && t.overDeviceLimit(r.user, r.srcIP, p.deviceLimit) {
+	if t.refuse(r, p) {
 		t.rejected.Add(1)
 		conn.Close()
 		return conn
@@ -231,7 +246,7 @@ func (t *Tracker) RoutedPacketConnection(ctx context.Context, conn N.PacketConn,
 	}
 	r := t.newRec(m, rule, out)
 	p := t.policy(r.user)
-	if p != nil && t.overDeviceLimit(r.user, r.srcIP, p.deviceLimit) {
+	if t.refuse(r, p) {
 		t.rejected.Add(1)
 		conn.Close()
 		return conn

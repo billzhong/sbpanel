@@ -155,3 +155,35 @@ func TestLimitedConnThroughput(t *testing.T) {
 		t.Fatalf("elapsed %s", el)
 	}
 }
+
+// A traffic limit closes one inbound to a user: new connections there are refused and open
+// ones closed, while the user's connections on other inbounds and other users are untouched.
+func TestPolicyBlockedInbounds(t *testing.T) {
+	tr := NewTracker()
+	open := func(user, inbound string) *connRec {
+		r := &connRec{id: tr.nextID.Add(1), user: user, inbound: inbound, start: time.Now()}
+		c := &fakeCloser{}
+		r.closer = c
+		tr.join(r)
+		return r
+	}
+	a := open("1", "home")
+	b := open("1", "main")
+	c := open("2", "home")
+	tr.SetPolicies([]*pb.UserPolicy{{User: "1", BlockedInbounds: []string{"home"}}})
+	if !a.closer.(*fakeCloser).closed || b.closer.(*fakeCloser).closed || c.closer.(*fakeCloser).closed {
+		t.Fatalf("kick: home/1=%v main/1=%v home/2=%v", a.closer.(*fakeCloser).closed, b.closer.(*fakeCloser).closed, c.closer.(*fakeCloser).closed)
+	}
+	p := tr.policy("1")
+	if !tr.refuse(&connRec{user: "1", inbound: "home"}, p) || tr.refuse(&connRec{user: "1", inbound: "main"}, p) {
+		t.Fatal("refuse")
+	}
+	tr.SetPolicies(nil)
+	if tr.refuse(&connRec{user: "1", inbound: "home"}, tr.policy("1")) {
+		t.Fatal("still refused after the limit reset")
+	}
+}
+
+type fakeCloser struct{ closed bool }
+
+func (f *fakeCloser) Close() error { f.closed = true; return nil }

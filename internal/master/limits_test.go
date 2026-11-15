@@ -1,6 +1,7 @@
 package master
 
 import (
+	"encoding/base64"
 	"bytes"
 	"encoding/json"
 	"net/http"
@@ -63,15 +64,35 @@ func hcall(t *testing.T, h http.HandlerFunc, method, path string, body any, pv .
 	return w
 }
 
+// specUsers lists the users the node lets through on an inbound: in its user list and not
+// blocked there by their policy. Blocked users must stay in the list (subscriptions keep
+// working; the node refuses them).
 func specUsers(t *testing.T, m *Master, tag string) []string {
 	t.Helper()
 	spec, err := buildSpec(m.db, "n1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	blocked := map[string]bool{}
+	for _, p := range spec.Policies {
+		if slices.Contains(p.BlockedInbounds, tag) {
+			blocked[p.User] = true
+		}
+	}
 	for _, in := range spec.Inbounds {
 		if in.Tag == tag {
-			return in.UserNames
+			var out []string
+			for _, u := range in.UserNames {
+				if !blocked[u] {
+					out = append(out, u)
+				}
+			}
+			for u := range blocked {
+				if !slices.Contains(in.UserNames, u) {
+					t.Fatalf("blocked user %s was removed from %s", u, tag)
+				}
+			}
+			return out
 		}
 	}
 	t.Fatalf("no inbound %s", tag)
@@ -199,8 +220,17 @@ func TestTrafficLimitLifecycle(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil {
 		t.Fatal(err, w.Body.String())
 	}
-	if len(page.Nodes) != 1 || !strings.Contains(page.Nodes[0].Name, "main") {
-		t.Fatalf("page nodes: %+v", page.Nodes)
+	paused := 0
+	for _, n := range page.Nodes {
+		if n.Paused != !strings.Contains(n.Name, "main") {
+			t.Fatalf("paused flag on %s: %v", n.Name, n.Paused)
+		}
+		if n.Paused {
+			paused++
+		}
+	}
+	if len(page.Nodes) != 3 || paused != 2 {
+		t.Fatalf("page nodes (the closed lines must stay): %+v", page.Nodes)
 	}
 	if len(page.Usage) != 3 || !page.Usage[0].Exhausted || page.Usage[0].Used < 1<<30 {
 		t.Fatalf("page usage: %+v", page.Usage)
@@ -213,8 +243,8 @@ func TestTrafficLimitLifecycle(t *testing.T) {
 	r.SetPathValue("token", "tok1")
 	w = httptest.NewRecorder()
 	m.handleSub(w, r)
-	if links := w.Body.String(); links == "" {
-		t.Fatal("empty subscription")
+	if links, _ := base64.StdEncoding.DecodeString(w.Body.String()); strings.Count(string(links), "trojan://") != 3 {
+		t.Fatalf("client subscription must keep every line: %q", links)
 	}
 	_ = u
 

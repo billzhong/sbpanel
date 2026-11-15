@@ -279,8 +279,9 @@
         if (n.transport && n.transport !== 'tcp') tags.push(h('span', { cls: 'tag', text: n.transport.toUpperCase() }));
         if (n.security && n.security !== 'none') tags.push(h('span', { cls: 'tag', text: SEC[n.security] || n.security }));
         if (n.flow) tags.push(h('span', { cls: 'tag', text: 'Vision' }));
+        if (n.paused) tags.unshift(h('span', { cls: 'tag off', title: t('pausedLine'), text: t('exhausted') }));
         var showQR = function () { sheet(n.name, (PROTO[n.protocol] || n.protocol) + ' · ' + n.address + ':' + n.port, n.qr, n.uri); };
-        return h('article', { cls: 'node' },
+        return h('article', { cls: 'node' + (n.paused ? ' paused' : '') },
           settings.show_node_qr !== false && n.qr ? h('button', { cls: 'open', 'aria-label': t('showQR', n.name), on: { click: showQR } }) : null,
           h('div', { cls: 'flag' + (r.flag ? '' : ' txt'), 'aria-hidden': 'true', text: r.flag || (r.code || (PROTO[n.protocol] || '?').slice(0, 2)) }),
           h('div', { cls: 'nm', text: n.name.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '') }),

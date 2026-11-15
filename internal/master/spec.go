@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 
@@ -159,8 +160,7 @@ func buildSpec(db *sql.DB, nodeID string) (*pb.NodeSpec, error) {
 		var users []specUser
 		urows, err := db.Query(`SELECT DISTINCT u.id, u.uuid, u.password, u.flow, u.speed_up, u.speed_down, u.device_limit
 			FROM users u JOIN user_groups ug ON ug.user_id=u.id JOIN group_inbounds gi ON gi.group_id=ug.group_id
-			WHERE gi.inbound_id=? AND u.enabled=1 AND u.status='active'
-			AND u.id NOT IN (`+limitedUsersSQL+`) ORDER BY u.id`, in.id, in.id)
+			WHERE gi.inbound_id=? AND u.enabled=1 AND u.status='active' ORDER BY u.id`, in.id)
 		if err != nil {
 			return nil, err
 		}
@@ -219,6 +219,26 @@ func buildSpec(db *sql.DB, nodeID string) (*pb.NodeSpec, error) {
 		ins.UsersJson, ins.UsersHash, ins.UserNames = uj, shortHash(uj), names
 		spec.Inbounds = append(spec.Inbounds, ins)
 	}
+	// traffic limits: users over one keep their place in its inbounds (and subscriptions);
+	// the node refuses their connections there
+	if rows, err := db.Query(`SELECT DISTINCT ru.user_id, i.tag FROM rule_usage ru
+		JOIN traffic_rules r ON r.id=ru.rule_id AND ru.period=r.cur_period AND r.enabled=1
+		JOIN user_rule_limits ul ON ul.rule_id=r.id AND ul.user_id=ru.user_id
+		JOIN traffic_rule_inbounds ri ON ri.rule_id=r.id JOIN inbounds i ON i.id=ri.inbound_id
+		WHERE i.node_id=? AND i.enabled=1 AND ru.up+ru.down>=`+effLimit+` ORDER BY ru.user_id, i.tag`, nodeID); err == nil {
+		for rows.Next() {
+			var uid int64
+			var tag string
+			rows.Scan(&uid, &tag)
+			p := policies[uid]
+			if p == nil {
+				p = &pb.UserPolicy{User: strconv.FormatInt(uid, 10)}
+				policies[uid] = p
+			}
+			p.BlockedInbounds = append(p.BlockedInbounds, tag)
+		}
+		rows.Close()
+	}
 	addCertWatches(db, spec, nodeID)
 	sort.Slice(spec.Inbounds, func(i, j int) bool { return spec.Inbounds[i].Tag < spec.Inbounds[j].Tag })
 	ids := make([]int64, 0, len(policies))
@@ -241,7 +261,7 @@ func specHash(s *pb.NodeSpec) string {
 		}
 	}
 	for _, p := range s.Policies {
-		parts = append(parts, []byte(fmt.Sprintf("%s/%d/%d/%d", p.User, p.SpeedUp, p.SpeedDown, p.DeviceLimit)))
+		parts = append(parts, []byte(fmt.Sprintf("%s/%d/%d/%d/%s", p.User, p.SpeedUp, p.SpeedDown, p.DeviceLimit, strings.Join(p.BlockedInbounds, ","))))
 	}
 	for _, c := range s.Certs {
 		parts = append(parts, []byte("cert:"+c.Id+"/"+c.Hash))

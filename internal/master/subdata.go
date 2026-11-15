@@ -79,6 +79,7 @@ type subNodeJSON struct {
 	Port      int        `json:"port"`
 	SNI       string     `json:"sni,omitempty"`
 	Region    *subRegion `json:"region"`
+	Paused    bool       `json:"paused,omitempty"` // a traffic limit is used up: refused until it resets
 	URI       string     `json:"uri"`
 	QR        string     `json:"qr"`
 }
@@ -90,7 +91,7 @@ type subUsage struct {
 	Up        int64  `json:"up"`
 	Down      int64  `json:"down"`
 	Used      int64  `json:"used"`
-	Exhausted bool   `json:"exhausted"` // closed by a traffic limit until it resets
+	Exhausted bool   `json:"exhausted"` // refused by the node until its traffic limit resets
 }
 
 // subLimit is a traffic limit covering some of the user's lines.
@@ -379,10 +380,10 @@ func (m *Master) subData(r *http.Request, u subUser, es []subEntry, t *subTheme)
 	}
 	uj.Reset.NextAt = nextReset(u.ResetStrategy, time.Unix(u.CreatedAt, 0), time.Now(), m.loc)
 	nodes := []subNodeJSON{}
-	for _, e := range es {
-		if !u.Blocked[e.Inbound] {
-			nodes = append(nodes, e.nodeJSON(len(nodes), string(qrDataURI(e.uri()))))
-		}
+	for i, e := range es {
+		n := e.nodeJSON(i, string(qrDataURI(e.uri())))
+		n.Paused = u.Blocked[e.Inbound]
+		nodes = append(nodes, n)
 	}
 	usage, limits := m.subUsage(u, es, uj.Reset.NextAt)
 	return subPageData{

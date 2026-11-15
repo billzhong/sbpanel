@@ -3,8 +3,9 @@ package master
 // Traffic limits: presets of an extra quota on a set of inbounds (e.g. "home lines, 50 GB a
 // month" over every relay reaching them) that admins attach to individual users. Users
 // without one have no such limit. A user over an attached limit is taken off its inbounds
-// only (the spec drops them, the node closes their connections there, subscriptions hide
-// the entries); everything else keeps working. Limits reset with the user's own cycle or on
+// only: the spec lists those inbounds as blocked in the user's policy and the node refuses
+// their connections there (they stay in the inbounds' user lists and in subscriptions, so
+// clients need no refresh when the limit resets); everything else keeps working. Limits reset with the user's own cycle or on
 // a fixed day of the month. user_rule_limits holds the attachments: traffic_limit 0 means
 // the preset's size (so editing the preset applies to everyone on it), > 0 a custom size.
 //
@@ -49,13 +50,6 @@ type limitRule struct {
 
 // effLimit is the size in effect for an attachment (ul) of a preset (r).
 const effLimit = `(CASE WHEN ul.traffic_limit>0 THEN ul.traffic_limit ELSE r.traffic_limit END)`
-
-// limitedUsersSQL selects the users a limit has closed an inbound (?) for.
-const limitedUsersSQL = `SELECT ru.user_id FROM rule_usage ru
-	JOIN traffic_rules r ON r.id=ru.rule_id AND ru.period=r.cur_period
-	JOIN traffic_rule_inbounds ri ON ri.rule_id=r.id
-	JOIN user_rule_limits ul ON ul.rule_id=r.id AND ul.user_id=ru.user_id
-	WHERE ri.inbound_id=? AND r.enabled=1 AND ru.up+ru.down>=` + effLimit
 
 // blockedInbounds lists the inbounds a limit has closed for one user.
 func (m *Master) blockedInbounds(uid int64) map[int64]bool {
@@ -208,7 +202,7 @@ func (m *Master) limitsCrossed(cs []limitCross) {
 	for _, c := range cs {
 		addEvent(m.db, "limit_exceeded", c.uid, "", fmt.Sprintf("%s (%s / %s)", c.rule, fmtBytesGo(c.used), fmtBytesGo(c.limit)))
 	}
-	m.reconcile() // the node closes their connections on the inbounds they lose
+	m.reconcile() // the node refuses their connections on those inbounds from now on
 }
 
 // resetUserLimits clears the per-inbound counters and the user-cycle limits of users whose

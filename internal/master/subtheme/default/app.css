@@ -183,3 +183,5 @@ svg { flex: none; }
 .bar.warn i { background: var(--warn); } .bar.bad i { background: var(--bad); }
 .uses .off .nm { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--hl-high); }
 .uses + .btn { margin-top: 12px; }
+.tag.off { background: var(--bad-soft); color: var(--bad); font-weight: 650; }
+.node.paused .nm, .node.paused .flag { opacity: .55; }
