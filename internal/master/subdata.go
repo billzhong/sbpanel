@@ -209,6 +209,9 @@ func flagOf(code string) string {
 	if len(code) != 2 {
 		return ""
 	}
+	if code == "TW" {
+		return "🏝️" // iOS with a mainland-China region renders 🇹🇼 as a blank box
+	}
 	r := []rune{rune(0x1F1E6 + int(code[0]-'A')), rune(0x1F1E6 + int(code[1]-'A'))}
 	return string(r)
 }

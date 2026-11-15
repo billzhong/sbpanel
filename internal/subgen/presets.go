@@ -108,7 +108,7 @@ type Preset struct {
 }
 
 var Presets = []Preset{
-	{"standard", "标准分流", "流媒体、AI、广告拦截、国内直连，其余走代理", StandardPreset},
+	{"standard", "标准分流", "OpenAI、Claude、其他 AI、流媒体、广告拦截、国内直连，其余走代理", StandardPreset},
 	{"global", "全局代理", "除局域网外全部走代理", GlobalPreset},
 	{"bypass-cn", "绕过大陆", "中国大陆域名与 IP 直连，其余走代理", BypassCNPreset},
 	{"minimal", "极简", "只有节点选择和自动选择，不下载任何规则", MinimalPreset},
@@ -140,7 +140,8 @@ func MinimalPreset() *Profile {
 	return p
 }
 
-// StandardPreset is 「标准分流」: streaming, AI, ads, CN direct, global fallback.
+// StandardPreset is 「标准分流」: OpenAI, Claude and other AI each get a group (Claude
+// prefers home-broadband nodes), streaming, ads, CN direct, and a "🐟 final" fallback.
 func StandardPreset() *Profile {
 	regions := []Member{{Kind: "group", Ref: "hk"}, {Kind: "group", Ref: "tw"}, {Kind: "group", Ref: "jp"}, {Kind: "group", Ref: "sg"}, {Kind: "group", Ref: "us"}}
 	sel := func(id, name string, head []Member, tail ...Member) Group {
@@ -152,7 +153,9 @@ func StandardPreset() *Profile {
 		RuleSets: []RuleSet{
 			inlinePrivate(),
 			cat("ads", "广告", "ads"),
-			cat("ai", "AI 服务", "ai"),
+			cat("openai", "OpenAI", "openai"),
+			cat("anthropic", "Claude", "anthropic"),
+			cat("ai", "其他 AI", "ai"),
 			cat("netflix", "Netflix", "netflix"), cat("disney", "Disney+", "disney"), cat("youtube", "YouTube", "youtube"),
 			cat("hbo", "HBO", "hbo"), cat("primevideo", "Prime Video", "primevideo"), cat("spotify", "Spotify", "spotify"),
 			cat("tiktok", "TikTok", "tiktok"), cat("bahamut", "巴哈姆特", "bahamut"),
@@ -162,17 +165,24 @@ func StandardPreset() *Profile {
 			cat("cn", "中国大陆", "cn"),
 		},
 		Groups: []Group{
-			sel("proxy", "🚀 节点选择", append([]Member{{Kind: "group", Ref: "auto"}}, regions...), Member{Kind: "all"}, Member{Kind: "direct"}),
+			sel("proxy", "🚀 节点选择", append([]Member{{Kind: "group", Ref: "fallback"}, {Kind: "group", Ref: "auto"}}, regions...), Member{Kind: "all"}, Member{Kind: "direct"}),
+			// the first healthy node in order; reorder its members to set the priority (e.g. one filter per node)
+			{ID: "fallback", Name: "🛟 故障切换", Type: "fallback", Members: []Member{{Kind: "all", Exclude: `(?i)家宽|家庭|住宅|\bhome\b|residential`}}},
 			{ID: "auto", Name: "♻️ 自动选择", Type: "url-test", Members: []Member{{Kind: "all"}}},
-			sel("ai", "🤖 AI 服务", []Member{{Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}, {Kind: "group", Ref: "sg"}, {Kind: "group", Ref: "tw"}}, proxy...),
+			// home-broadband nodes (residential IPs): what AI services trust most
+			{ID: "home", Name: "🏠 家宽", Type: "select", HideIfEmpty: true, Members: []Member{{Kind: "filter", Include: `(?i)家宽|家庭|住宅|\bhome\b|residential`}}},
+			sel("openai", "🤖 OpenAI", []Member{{Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}, {Kind: "group", Ref: "sg"}, {Kind: "group", Ref: "tw"}, {Kind: "group", Ref: "home"}}, proxy...),
+			sel("claude", "🟣 Claude", []Member{{Kind: "group", Ref: "home"}, {Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}}, proxy...),
+			sel("ai", "✨ 其他 AI", []Member{{Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}, {Kind: "group", Ref: "sg"}, {Kind: "group", Ref: "tw"}}, proxy...),
 			sel("media", "📺 流媒体", proxy, regions...),
 			sel("tg", "📲 Telegram", proxy, regions...),
 			sel("apple", "🍎 Apple", []Member{{Kind: "direct"}}, proxy...),
 			sel("ms", "Ⓜ️ Microsoft", []Member{{Kind: "direct"}}, proxy...),
 			sel("ads", "🛑 广告拦截", []Member{{Kind: "reject"}, {Kind: "direct"}}),
-			sel("final", "🐟 漏网之鱼", proxy, Member{Kind: "direct"}),
+			sel("final", "🐟 final", proxy, Member{Kind: "direct"}),
 			region("hk", "🇭🇰 香港", `(?i)港|🇭🇰|\bhk\b|hong ?kong`),
-			region("tw", "🇹🇼 台湾", `(?i)台|🇹🇼|\btw\b|taiwan`),
+			// not 🇹🇼: iOS with a mainland-China region renders that flag as a blank box
+			region("tw", "🏝️ 台湾", `(?i)台|🇹🇼|\btw\b|taiwan`),
 			region("jp", "🇯🇵 日本", `(?i)日本|🇯🇵|\bjp\b|japan|tokyo|东京|大阪`),
 			region("sg", "🇸🇬 新加坡", `(?i)新加坡|狮城|🇸🇬|\bsg\b|singapore`),
 			region("us", "🇺🇸 美国", `(?i)美国|🇺🇸|\bus\b|united states|los angeles|san jose|洛杉矶|圣何塞`),
@@ -180,6 +190,8 @@ func StandardPreset() *Profile {
 		Rules: []Rule{
 			{RuleSet: "lan", Target: "DIRECT"},
 			{RuleSet: "ads", Target: "ads"},
+			{RuleSet: "openai", Target: "openai"},
+			{RuleSet: "anthropic", Target: "claude"},
 			{RuleSet: "ai", Target: "ai"},
 			{RuleSet: "netflix", Target: "media"}, {RuleSet: "disney", Target: "media"}, {RuleSet: "youtube", Target: "media"},
 			{RuleSet: "hbo", Target: "media"}, {RuleSet: "primevideo", Target: "media"}, {RuleSet: "spotify", Target: "media"},

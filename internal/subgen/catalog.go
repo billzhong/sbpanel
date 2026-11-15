@@ -16,7 +16,7 @@ type CatalogItem struct {
 	Key, Label, Kind string   // Kind: streaming | ai | ads | cn | private | service | global | games
 	Geosite          string   // geosite name ("" = none)
 	Geoip            string   // geoip name ("" = none)
-	Surge            []string // blackmatrix7 list names
+	Surge            []string // blackmatrix7 list names, or full https:// list URLs
 	SurgeGeoIP       string   // native Surge GEOIP country code, e.g. "CN"
 }
 
@@ -37,8 +37,9 @@ func init() {
 		{"primevideo", "Prime Video", "streaming", "primevideo", "", []string{"PrimeVideo"}, ""},
 		{"bahamut", "Bahamut", "streaming", "bahamut", "", []string{"Bahamut"}, ""},
 		{"ai", "AI services (OpenAI/Claude/Gemini/Copilot…)", "ai", "category-ai-!cn", "", []string{"OpenAI", "Claude", "Gemini", "Copilot"}, ""},
-		{"openai", "OpenAI", "ai", "openai", "", []string{"OpenAI"}, ""},
-		{"anthropic", "Claude / Anthropic", "ai", "anthropic", "", []string{"Claude"}, ""},
+		// VPSDance/ai-proxy-rules is far more complete than blackmatrix7's OpenAI/Claude lists
+		{"openai", "OpenAI", "ai", "openai", "", []string{vpsDance + "openai.list"}, ""},
+		{"anthropic", "Claude / Anthropic", "ai", "anthropic", "", []string{vpsDance + "anthropic.list"}, ""},
 		{"gemini", "Google Gemini", "ai", "google-gemini", "", []string{"Gemini"}, ""},
 		{"telegram", "Telegram", "service", "telegram", "telegram", []string{"Telegram"}, ""},
 		{"apple", "Apple", "service", "apple", "", []string{"Apple"}, ""},
@@ -64,6 +65,7 @@ const (
 	metaBase = "https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo"
 	singBase = "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo"
 	bm7Base  = "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Surge"
+	vpsDance = "https://cdn.jsdelivr.net/gh/VPSDance/ai-proxy-rules@main/rules/surge/"
 )
 
 // remotesFor resolves a remote Source into concrete lists for a client.
@@ -130,7 +132,12 @@ func remotesRaw(client string, rs RuleSet) []remoteRef {
 		}
 	case "surge":
 		for _, n := range c.Surge {
-			out = append(out, remoteRef{Tag: rs.ID + "-" + n, URL: fmt.Sprintf("%s/%s/%s.list", bm7Base, n, n), Behavior: "classical", Format: "list"})
+			u := fmt.Sprintf("%s/%s/%s.list", bm7Base, n, n)
+			if strings.HasPrefix(n, "https://") {
+				u = n
+				n = strings.TrimSuffix(n[strings.LastIndex(n, "/")+1:], ".list")
+			}
+			out = append(out, remoteRef{Tag: rs.ID + "-" + n, URL: u, Behavior: "classical", Format: "list"})
 		}
 	}
 	return out

@@ -88,7 +88,7 @@ func TestMihomoStructure(t *testing.T) {
 	for _, g := range cfg.ProxyGroups {
 		groups[g.Name] = g.Proxies
 	}
-	if _, ok := groups["🇹🇼 台湾"]; ok {
+	if _, ok := groups["🏝️ 台湾"]; ok {
 		t.Fatal("empty region group not hidden")
 	}
 	if g := groups["🇺🇸 美国"]; len(g) != 2 {
@@ -102,7 +102,7 @@ func TestMihomoStructure(t *testing.T) {
 		if strings.HasPrefix(rl, "RULE-SET,cn-ip,") {
 			cnIP = rl
 		}
-		if strings.HasPrefix(rl, "RULE-SET,bahamut-site,") && !strings.HasSuffix(rl, "🐟 漏网之鱼") {
+		if strings.HasPrefix(rl, "RULE-SET,bahamut-site,") && !strings.HasSuffix(rl, "🐟 final") {
 			t.Fatalf("hidden target must fall back to final: %s", rl)
 		}
 	}
@@ -124,7 +124,7 @@ func TestSingboxSemantics(t *testing.T) {
 		} `json:"route"`
 	}
 	json.Unmarshal(r.Body, &cfg)
-	if cfg.Route.Final != "🐟 漏网之鱼" {
+	if cfg.Route.Final != "🐟 final" {
 		t.Fatal("final", cfg.Route.Final)
 	}
 	var sawAdsReject, sawResolveBeforeCN bool

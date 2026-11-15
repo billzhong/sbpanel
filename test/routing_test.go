@@ -60,7 +60,7 @@ func TestRoutingProfiles(t *testing.T) {
 	if err := yaml.Unmarshal(b, &mh); err != nil {
 		t.Fatalf("mihomo yaml: %v\n%s", err, b)
 	}
-	if len(mh.Proxies) != 2 || mh.RuleProviders["ai-site"] == nil || mh.Rules[len(mh.Rules)-1] != "MATCH,🐟 漏网之鱼" {
+	if len(mh.Proxies) != 2 || mh.RuleProviders["ai-site"] == nil || mh.Rules[len(mh.Rules)-1] != "MATCH,🐟 final" {
 		t.Fatalf("mihomo standard: %d proxies, providers %d, last %q", len(mh.Proxies), len(mh.RuleProviders), mh.Rules[len(mh.Rules)-1])
 	}
 	resp, b := get("", "SFA/1.12.0 (Android)")
