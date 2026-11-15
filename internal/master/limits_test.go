@@ -1,8 +1,8 @@
 package master
 
 import (
-	"encoding/base64"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"

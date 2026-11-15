@@ -146,8 +146,11 @@ func mergeReports(rs []*pb.TrafficReport) *pb.TrafficReport {
 	for _, u := range users {
 		out.Users = append(out.Users, u)
 	}
-	for _, d := range dims {
-		out.Dims = append(out.Dims, d)
-	}
+	// keep the per-user cap: merging a long backlog must not turn into one huge report
+	// (and one long write transaction on the master)
+	out.Dims = capDims(dims, defaultMaxHosts)
 	return out
 }
+
+// defaultMaxHosts is the per-user dimension cap per report (Config.MaxHostsPerUser).
+const defaultMaxHosts = 200

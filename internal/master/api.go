@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,9 +44,22 @@ func (m *Master) sign(payload string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
+// credGen fingerprints an admin's password hash and TOTP secret. Sessions carry it, so
+// changing the password or two-factor setup (or renaming / deleting the admin) ends every
+// existing session.
+func (m *Master) credGen(user string) (string, bool) {
+	var hash, totp string
+	if m.db.QueryRow(`SELECT pass_hash, totp_secret FROM admins WHERE username=?`, user).Scan(&hash, &totp) != nil {
+		return "", false
+	}
+	sum := sha256.Sum256([]byte(hash + "\x00" + totp))
+	return hex.EncodeToString(sum[:8]), true
+}
+
 func (m *Master) newSession(user string) string {
 	exp := time.Now().Add(7 * 24 * time.Hour).Unix()
-	p := user + "|" + strconv.FormatInt(exp, 10)
+	gen, _ := m.credGen(user)
+	p := user + "|" + strconv.FormatInt(exp, 10) + "|" + gen
 	return base64.RawURLEncoding.EncodeToString([]byte(p)) + "." + m.sign(p)
 }
 
@@ -62,12 +76,15 @@ func (m *Master) checkSession(r *http.Request) (string, bool) {
 	if err != nil || !hmac.Equal([]byte(m.sign(string(raw))), []byte(parts[1])) {
 		return "", false
 	}
-	f := strings.SplitN(string(raw), "|", 2)
-	if len(f) != 2 {
+	f := strings.SplitN(string(raw), "|", 3)
+	if len(f) != 3 {
 		return "", false
 	}
 	exp, _ := strconv.ParseInt(f[1], 10, 64)
 	if exp < time.Now().Unix() {
+		return "", false
+	}
+	if gen, ok := m.credGen(f[0]); !ok || !hmac.Equal([]byte(gen), []byte(f[2])) {
 		return "", false
 	}
 	return f[0], true
@@ -271,11 +288,21 @@ func (m *Master) apiLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad request")
 		return
 	}
+	req.Username = truncate(req.Username, 64)
+	ip := clientIP(r)
+	if wait := m.logins.blocked(ip, req.Username); wait > 0 {
+		writeErr(w, 429, T(langOf(w), "Too many failed sign-ins; try again in %d minutes", int(wait.Minutes())+1))
+		return
+	}
 	var hash, totp string
 	err := m.db.QueryRow(`SELECT pass_hash, totp_secret FROM admins WHERE username=?`, req.Username).Scan(&hash, &totp)
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
+	if err != nil {
+		hash = dummyHash // same bcrypt cost whether or not the user exists
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil || err != nil {
+		m.logins.fail(ip, req.Username)
 		time.Sleep(500 * time.Millisecond)
-		m.db.Exec(`INSERT INTO audit_log(ts, admin, action, target, ip) VALUES(?,?,?,?,?)`, now(), req.Username, "login.failed", "", clientIP(r))
+		m.db.Exec(`INSERT INTO audit_log(ts, admin, action, target, ip) VALUES(?,?,?,?,?)`, now(), req.Username, "login.failed", "", ip)
 		writeErr(w, 401, "Wrong username or password")
 		return
 	}
@@ -284,20 +311,35 @@ func (m *Master) apiLogin(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 401, map[string]any{"error": T(langOf(w), "Enter your two-factor code"), "need_totp": true})
 			return
 		}
-		if !totpValid(totp, req.Code, time.Now()) {
+		if !m.totpUse(req.Username, totp, req.Code, time.Now()) {
+			m.logins.fail(ip, req.Username)
 			time.Sleep(500 * time.Millisecond)
+			m.db.Exec(`INSERT INTO audit_log(ts, admin, action, target, ip) VALUES(?,?,?,?,?)`, now(), req.Username, "login.failed_2fa", "", ip)
 			writeJSON(w, 401, map[string]any{"error": T(langOf(w), "Incorrect two-factor code"), "need_totp": true})
 			return
 		}
 	}
-	m.db.Exec(`INSERT INTO audit_log(ts, admin, action, target, ip) VALUES(?,?,?,?,?)`, now(), req.Username, "login", "", clientIP(r))
+	m.logins.ok(ip)
+	m.db.Exec(`INSERT INTO audit_log(ts, admin, action, target, ip) VALUES(?,?,?,?,?)`, now(), req.Username, "login", "", ip)
 	setSetting(m.db, "admin_lang", reqLang(r)) // notifications follow the admin's UI language
+	m.setSession(w, r, req.Username)
+	writeJSON(w, 200, map[string]string{"username": req.Username})
+}
+
+func (m *Master) setSession(w http.ResponseWriter, r *http.Request, user string) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: m.newSession(req.Username), Path: "/", HttpOnly: true,
+		Name: sessionCookie, Value: m.newSession(user), Path: "/", HttpOnly: true,
 		SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		MaxAge: 7 * 86400,
 	})
-	writeJSON(w, 200, map[string]string{"username": req.Username})
+}
+
+// renewOwnSession keeps the admin who just changed their password / two-factor setup signed
+// in on this device; their other sessions end (credGen changed).
+func (m *Master) renewOwnSession(w http.ResponseWriter, r *http.Request) {
+	if _, err := r.Cookie(sessionCookie); err == nil {
+		m.setSession(w, r, actor(r))
+	}
 }
 
 func qInt(r *http.Request, k string, d int64) int64 {

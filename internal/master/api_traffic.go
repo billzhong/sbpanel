@@ -442,9 +442,27 @@ func (m *Master) apiOverview(w http.ResponseWriter, r *http.Request) {
 	for _, ips := range on {
 		o.OnlineIPs += len(ips)
 	}
-	f := trafficFilter{from: t.Unix() - 86400, to: t.Unix() + 1}
-	o.TopUsers, _ = m.top(f, "user", 8)
-	o.TopDomains, _ = m.top(f, "domain", 10)
-	o.TopOutbound, _ = m.top(f, "outbound", 6)
+	o.TopUsers, o.TopDomains, o.TopOutbound = m.overviewTops(t)
 	writeJSON(w, 200, o)
+}
+
+// overviewTops are the overview's 24 h rankings. The page polls every few seconds, but
+// these aggregate a day of dimension rows, so they are computed at most every 30 s.
+func (m *Master) overviewTops(t time.Time) (users, domains, outbounds []topRow) {
+	m.topsMu.Lock()
+	defer m.topsMu.Unlock()
+	if c := m.topsCache; c != nil && t.Sub(c.at) < 30*time.Second {
+		return c.users, c.domains, c.outbounds
+	}
+	f := trafficFilter{from: t.Unix() - 86400, to: t.Unix() + 1}
+	users, _ = m.top(f, "user", 8)
+	domains, _ = m.top(f, "domain", 10)
+	outbounds, _ = m.top(f, "outbound", 6)
+	m.topsCache = &topsCache{at: t, users: users, domains: domains, outbounds: outbounds}
+	return
+}
+
+type topsCache struct {
+	at                        time.Time
+	users, domains, outbounds []topRow
 }

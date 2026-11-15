@@ -346,6 +346,9 @@ func (req *inboundReq) validate() (port int64, opts []byte, err error) {
 	if _, ok := o["listen"]; !ok {
 		o["listen"] = "::"
 	}
+	if err := checkInboundFiles(o); err != nil {
+		return 0, nil, err
+	}
 	delete(o, "users")
 	b, _ := json.Marshal(o)
 	return int64(p), b, nil

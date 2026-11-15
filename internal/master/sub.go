@@ -555,12 +555,21 @@ func (m *Master) loadSubUser(token string) (subUser, error) {
 	return u, err
 }
 
+// clientIP is the visitor's address. Behind a local reverse proxy (loopback peer) it trusts
+// X-Real-IP, which the proxy sets, and otherwise the right-most X-Forwarded-For entry (the
+// one the proxy appended); the left-most entries come from the client and can be forged.
 func clientIP(r *http.Request) string {
-	if xf := r.Header.Get("X-Forwarded-For"); xf != "" && isLoopback(r.RemoteAddr) {
-		return strings.TrimSpace(strings.Split(xf, ",")[0])
+	if !isLoopback(r.RemoteAddr) {
+		return hostOnly(r.RemoteAddr)
 	}
-	if xr := r.Header.Get("X-Real-IP"); xr != "" && isLoopback(r.RemoteAddr) {
+	if xr := strings.TrimSpace(r.Header.Get("X-Real-IP")); xr != "" && net.ParseIP(xr) != nil {
 		return xr
+	}
+	if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
+		parts := strings.Split(xf, ",")
+		if ip := strings.TrimSpace(parts[len(parts)-1]); net.ParseIP(ip) != nil {
+			return ip
+		}
 	}
 	return hostOnly(r.RemoteAddr)
 }

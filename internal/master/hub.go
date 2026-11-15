@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"golang.org/x/time/rate"
+	"google.golang.org/grpc/tap"
 	"net"
 	"sync"
 	"time"
@@ -100,14 +102,15 @@ func (s *session) snapshot() (hello *pb.Hello, hb *pb.Heartbeat, last time.Time,
 type Hub struct {
 	pb.UnimplementedNodeHubServer
 	pb.UnimplementedEnrollServer
-	m        *Master
-	mu       sync.Mutex
-	sessions map[string]*session
-	srv      *grpc.Server
+	enrollRate *rate.Limiter // anonymous Enroll calls
+	m          *Master
+	mu         sync.Mutex
+	sessions   map[string]*session
+	srv        *grpc.Server
 }
 
 func newHub(m *Master) *Hub {
-	return &Hub{m: m, sessions: map[string]*session{}}
+	return &Hub{m: m, sessions: map[string]*session{}, enrollRate: rate.NewLimiter(1, 10)}
 }
 
 type ctxKey struct{}
@@ -188,7 +191,16 @@ func (h *Hub) Serve(ln net.Listener, ca *pki.CA) error {
 		grpc.StreamInterceptor(h.streamAuth),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 10 * time.Second, PermitWithoutStream: true}),
 		grpc.KeepaliveParams(keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}),
-		grpc.MaxRecvMsgSize(64<<20),
+		grpc.MaxRecvMsgSize(64<<20), // merged backlog reports after a long outage
+		grpc.MaxConcurrentStreams(256),
+		// Enroll is reachable without a client certificate: rate-limit it before the
+		// (up to 64 MB) message is read, so anonymous callers can't exhaust memory
+		grpc.InTapHandle(func(ctx context.Context, info *tap.Info) (context.Context, error) {
+			if info.FullMethodName == pb.Enroll_Enroll_FullMethodName && !h.enrollRate.Allow() {
+				return nil, status.Error(codes.ResourceExhausted, "too many enrollment attempts")
+			}
+			return ctx, nil
+		}),
 	)
 	pb.RegisterEnrollServer(h.srv, h)
 	pb.RegisterNodeHubServer(h.srv, h)
@@ -445,12 +457,16 @@ func (h *Hub) handle(s *session, msg *pb.NodeMsg) {
 		s.mu.Unlock()
 		defer h.m.enforceDevices()
 		t := now()
-		for _, u := range m.Online.Users {
-			uid := parseUserID(u.User)
-			for _, ip := range u.Ips {
-				db.Exec(`INSERT INTO online_ip(user_id,node_id,ip,first_seen,last_seen) VALUES(?,?,?,?,?)
-					ON CONFLICT(user_id,node_id,ip) DO UPDATE SET last_seen=excluded.last_seen`, uid, s.nodeID, ip, t, t)
+		// one transaction (one commit) per snapshot instead of one per user × IP
+		if tx, err := db.Begin(); err == nil {
+			for _, u := range m.Online.Users {
+				uid := parseUserID(u.User)
+				for _, ip := range u.Ips {
+					tx.Exec(`INSERT INTO online_ip(user_id,node_id,ip,first_seen,last_seen) VALUES(?,?,?,?,?)
+						ON CONFLICT(user_id,node_id,ip) DO UPDATE SET last_seen=excluded.last_seen`, uid, s.nodeID, ip, t, t)
+				}
 			}
+			tx.Commit()
 		}
 	}
 }

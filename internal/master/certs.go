@@ -580,7 +580,7 @@ func (m *Master) apiNodeCert(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, p := range []string{req.CertPath, req.KeyPath} {
-		if !path.IsAbs(p) || strings.ContainsAny(p, "\x00\n") || path.Clean(p) != p {
+		if !path.IsAbs(p) || strings.ContainsAny(p, "\x00\n") || path.Clean(p) != p || badNodePath(p) {
 			writeErr(w, 400, "Certificate and key need absolute paths on the node")
 			return
 		}

@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -132,7 +133,7 @@ func (c *Core) withCertPaths(tlsRaw stdjson.RawMessage, id string) (stdjson.RawM
 // inspectCert reads a node-local certificate pair (e.g. certbot) for the report.
 func inspectCert(w *pb.CertWatch) *pb.CertStatus {
 	st := &pb.CertStatus{Id: w.Id, CertPath: w.CertPath}
-	cb, err := os.ReadFile(w.CertPath)
+	cb, err := readPEMFile(w.CertPath)
 	if err != nil {
 		st.Error = "Can't read the certificate: " + err.Error()
 		return st
@@ -171,7 +172,7 @@ func inspectCert(w *pb.CertWatch) *pb.CertStatus {
 	sum := sha256.Sum256(leaf.Raw)
 	st.Fingerprint = hex.EncodeToString(sum[:])
 	if w.KeyPath != "" {
-		kb, err := os.ReadFile(w.KeyPath)
+		kb, err := readPEMFile(w.KeyPath)
 		if err != nil {
 			st.Error = "Can't read the private key: " + err.Error()
 		} else if _, err := tls.X509KeyPair(cb, kb); err != nil {
@@ -203,4 +204,28 @@ func certReport(ws []*pb.CertWatch) *pb.CertReport {
 		r.Certs = append(r.Certs, inspectCert(w))
 	}
 	return r
+}
+
+// maxPEMFile bounds what the agent reads for a certificate or key the master points it at.
+const maxPEMFile = 1 << 20
+
+// readPEMFile reads a regular file of at most maxPEMFile bytes. The path comes from the
+// master; device files (/dev/zero) and huge files must not exhaust the agent's memory.
+func readPEMFile(p string) ([]byte, error) {
+	fi, err := os.Stat(p) // certbot's live/ files are symlinks to archive/: follow them
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("not a regular file")
+	}
+	if fi.Size() > maxPEMFile {
+		return nil, fmt.Errorf("file too large (%d bytes)", fi.Size())
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, maxPEMFile))
 }

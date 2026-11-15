@@ -39,6 +39,7 @@ type connRec struct {
 type Tracker struct {
 	mu     sync.Mutex
 	active map[uint64]*connRec
+	ips    map[string]map[string]int // user -> source IP -> active connections (device limits)
 	closed []*connRec
 	nextID atomic.Uint64
 
@@ -91,7 +92,7 @@ type userPolicy struct {
 }
 
 func NewTracker() *Tracker {
-	return &Tracker{active: map[uint64]*connRec{}, policies: map[string]*userPolicy{}}
+	return &Tracker{active: map[uint64]*connRec{}, ips: map[string]map[string]int{}, policies: map[string]*userPolicy{}}
 }
 
 func newLimiter(bps int64) *rate.Limiter {
@@ -153,15 +154,11 @@ func (t *Tracker) overDeviceLimit(user, ip string, limit int) bool {
 	if limit <= 0 || user == "" {
 		return false
 	}
-	ips := map[string]bool{}
 	t.mu.Lock()
-	for _, r := range t.active {
-		if r.user == user {
-			ips[r.srcIP] = true
-		}
-	}
+	ips := t.ips[user] // kept by join / leave: O(1) instead of scanning every connection
+	over := ips[ip] == 0 && len(ips) >= limit
 	t.mu.Unlock()
-	return !ips[ip] && len(ips) >= limit
+	return over
 }
 
 var _ adapter.ConnectionTracker = (*Tracker)(nil)
@@ -201,6 +198,10 @@ func (t *Tracker) newRec(m adapter.InboundContext, rule adapter.Rule, out adapte
 func (t *Tracker) join(r *connRec) {
 	t.mu.Lock()
 	t.active[r.id] = r
+	if t.ips[r.user] == nil {
+		t.ips[r.user] = map[string]int{}
+	}
+	t.ips[r.user][r.srcIP]++
 	t.mu.Unlock()
 }
 
@@ -209,6 +210,14 @@ func (t *Tracker) leave(r *connRec) {
 	if _, ok := t.active[r.id]; ok {
 		delete(t.active, r.id)
 		t.closed = append(t.closed, r)
+		if m := t.ips[r.user]; m != nil {
+			if m[r.srcIP]--; m[r.srcIP] <= 0 {
+				delete(m, r.srcIP)
+			}
+			if len(m) == 0 {
+				delete(t.ips, r.user)
+			}
+		}
 	}
 	t.mu.Unlock()
 }

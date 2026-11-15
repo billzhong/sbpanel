@@ -69,6 +69,9 @@ type Master struct {
 	quit     chan struct{}
 	quitOnce sync.Once
 	cfg      Config
+	logins   loginLimiter
+	topsMu    sync.Mutex
+	topsCache *topsCache
 	db       *sql.DB
 	ca       *pki.CA
 	hub      *Hub
@@ -185,7 +188,8 @@ func (m *Master) Run(ctx context.Context) error {
 	go m.metricsLoop(stop)
 	go m.certs.loop(stop)
 	go m.probes.loop(stop)
-	srv := &http.Server{Handler: m.routes(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: m.routes(), ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout: 2 * time.Minute, WriteTimeout: 10 * time.Minute, IdleTimeout: 2 * time.Minute}
 	errc := make(chan error, 2)
 	go func() { errc <- m.hub.Serve(gl, m.ca) }()
 	go func() { errc <- srv.Serve(wl) }()

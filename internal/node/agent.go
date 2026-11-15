@@ -140,7 +140,7 @@ func NewAgent(cfg Config) (*Agent, error) {
 		cfg.Window = 10 * time.Second
 	}
 	if cfg.MaxHostsPerUser == 0 {
-		cfg.MaxHostsPerUser = 200
+		cfg.MaxHostsPerUser = defaultMaxHosts
 	}
 	if cfg.MaxSpool == 0 {
 		cfg.MaxSpool = int(7 * 24 * time.Hour / cfg.Window)

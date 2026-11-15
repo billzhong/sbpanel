@@ -47,10 +47,10 @@ var routeScopes = map[string]string{
 
 	// nodes
 	"GET /api/nodes":                   ScopeRead,
-	"POST /api/nodes":                  ScopeNodesWrite,
+	"POST /api/nodes":                  ScopeAdmin, // enrolling a machine gives it the certificate keys its inbounds use
 	"PATCH /api/nodes/{id}":            ScopeNodesWrite,
 	"DELETE /api/nodes/{id}":           ScopeNodesWrite,
-	"POST /api/nodes/{id}/token":       ScopeNodesWrite,
+	"POST /api/nodes/{id}/token":       ScopeAdmin,
 	"GET /api/nodes/{id}/spec":         ScopeRead,
 	"GET /api/nodes/{id}/conns":        ScopeRead,
 	"GET /api/nodes/{id}/metrics":      ScopeRead,

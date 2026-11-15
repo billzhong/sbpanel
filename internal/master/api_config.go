@@ -303,6 +303,9 @@ func validateSkeleton(js string) (string, error) {
 	if _, ok := v["inbounds"]; ok {
 		return "", fmt.Errorf("Templates cannot contain inbounds; manage them on the Inbounds page")
 	}
+	if err := checkSkeletonFiles(v); err != nil {
+		return "", err
+	}
 	tags := map[string]bool{}
 	if outs, ok := v["outbounds"].([]any); ok {
 		for _, o := range outs {

@@ -36,6 +36,25 @@ func (m *Master) ingest(nodeID string, r *pb.TrafficReport) (dup bool, err error
 		ws = now()
 	}
 	minute, hour := ws-ws%60, ws-ws%3600
+	// a node may only report traffic of real users, and never negative bytes (a compromised
+	// node must not be able to reset or inflate other users' quotas through odd numbers)
+	known := map[int64]bool{}
+	if rows, err := tx.Query(`SELECT id FROM users`); err == nil {
+		for rows.Next() {
+			var id int64
+			rows.Scan(&id)
+			known[id] = true
+		}
+		rows.Close()
+	}
+	usable := func(name string, up, down, conns *int64) (int64, bool) {
+		uid := parseUserID(name)
+		if uid > 0 && !known[uid] {
+			return 0, false
+		}
+		*up, *down, *conns = max(*up, 0), max(*down, 0), max(*conns, 0)
+		return uid, true
+	}
 
 	type ud struct{ up, down int64 }
 	perUser := map[int64]*ud{}
@@ -44,7 +63,10 @@ func (m *Master) ingest(nodeID string, r *pb.TrafficReport) (dup bool, err error
 		if u.User == probeUser { // connectivity probe (older nodes still report it)
 			continue
 		}
-		uid := parseUserID(u.User)
+		uid, ok := usable(u.User, &u.Up, &u.Down, &u.Conns)
+		if !ok {
+			continue
+		}
 		for _, q := range []struct {
 			table string
 			ts    int64
@@ -84,6 +106,9 @@ func (m *Master) ingest(nodeID string, r *pb.TrafficReport) (dup bool, err error
 	}
 	for _, d := range r.Dims {
 		if d.User == probeUser {
+			continue
+		}
+		if _, ok := usable(d.User, &d.Up, &d.Down, &d.Conns); !ok {
 			continue
 		}
 		if _, err := tx.Exec(`INSERT INTO dim_5m(ts,node_id,user_id,inbound,outbound,host,port,src_ip,network,rule,up,down,conns)
@@ -175,6 +200,10 @@ func (m *Master) policyLoop(stop <-chan struct{}) {
 			m.db.Exec(`DELETE FROM traffic_hour WHERE ts<?`, n-int64(m.cfg.KeepHourDays)*86400)
 			m.db.Exec(`DELETE FROM report_seen WHERE ts<?`, n-14*86400)
 			m.db.Exec(`DELETE FROM events WHERE ts<?`, n-90*86400)
+			// tables that only ever grew
+			m.db.Exec(`DELETE FROM online_ip WHERE last_seen<?`, n-30*86400)
+			m.db.Exec(`DELETE FROM sub_access WHERE ts<?`, n-90*86400)
+			m.db.Exec(`DELETE FROM audit_log WHERE ts<?`, n-365*86400)
 		}
 	}
 }

@@ -4,6 +4,7 @@
 package master
 
 var zhCatalog = map[string]string{
+	"Too many failed sign-ins; try again in %d minutes": "登录失败次数过多，请 %d 分钟后再试",
 	"Line limit used up":                                 "线路限额已用尽",
 	"Traffic limit must be greater than 0":               "流量限额必须大于 0",
 	"Traffic limit must not be negative":                 "流量限额不能为负数",

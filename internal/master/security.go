@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -61,16 +62,122 @@ func totpCode(secret string, t time.Time) string {
 }
 
 func totpValid(secret, code string, t time.Time) bool {
+	_, ok := totpStep(secret, code, t)
+	return ok
+}
+
+// totpStep checks a code against the previous, current and next 30 s step and returns the
+// step it matched.
+func totpStep(secret, code string, t time.Time) (int64, bool) {
 	code = strings.TrimSpace(code)
 	if len(code) != 6 {
-		return false
+		return 0, false
 	}
 	for _, d := range []time.Duration{-30 * time.Second, 0, 30 * time.Second} {
-		if subtle.ConstantTimeCompare([]byte(totpCode(secret, t.Add(d))), []byte(code)) == 1 {
-			return true
+		at := t.Add(d)
+		if subtle.ConstantTimeCompare([]byte(totpCode(secret, at)), []byte(code)) == 1 {
+			return at.Unix() / 30, true
 		}
 	}
-	return false
+	return 0, false
+}
+
+// totpUse accepts a code once: a step already used to sign in (a sniffed or replayed code)
+// is rejected.
+func (m *Master) totpUse(user, secret, code string, t time.Time) bool {
+	step, ok := totpStep(secret, code, t)
+	if !ok {
+		return false
+	}
+	m.logins.mu.Lock()
+	defer m.logins.mu.Unlock()
+	if m.logins.totp == nil {
+		m.logins.totp = map[string]int64{}
+	}
+	if step <= m.logins.totp[user] {
+		return false
+	}
+	m.logins.totp[user] = step
+	return true
+}
+
+// dummyHash is compared against when the username doesn't exist, so a failed sign-in takes
+// the same time either way (no username probing).
+var dummyHash = func() string {
+	h, _ := bcrypt.GenerateFromPassword([]byte("not-a-real-password"), bcrypt.DefaultCost)
+	return string(h)
+}()
+
+// loginLimiter counts failed sign-ins per client IP and per username in a sliding window.
+type loginLimiter struct {
+	mu    sync.Mutex
+	fails map[string][]time.Time
+	totp  map[string]int64 // last TOTP step used per admin
+}
+
+const (
+	loginWindow  = 15 * time.Minute
+	loginMaxIP   = 10 // failures per IP per window
+	loginMaxUser = 20 // failures per username per window (from any IP)
+)
+
+func (l *loginLimiter) recent(k string, now time.Time) []time.Time {
+	ts := l.fails[k]
+	i := 0
+	for i < len(ts) && now.Sub(ts[i]) > loginWindow {
+		i++
+	}
+	ts = ts[i:]
+	if len(ts) == 0 {
+		delete(l.fails, k)
+	} else {
+		l.fails[k] = ts
+	}
+	return ts
+}
+
+// blocked returns how long the caller must wait, or 0.
+func (l *loginLimiter) blocked(ip, user string) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.fails == nil {
+		return 0
+	}
+	now := time.Now()
+	var wait time.Duration
+	for _, c := range []struct {
+		k   string
+		max int
+	}{{"ip:" + ip, loginMaxIP}, {"user:" + user, loginMaxUser}} {
+		if ts := l.recent(c.k, now); len(ts) >= c.max {
+			if w := loginWindow - now.Sub(ts[len(ts)-c.max]); w > wait {
+				wait = w
+			}
+		}
+	}
+	return wait
+}
+
+func (l *loginLimiter) fail(ip, user string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.fails == nil || len(l.fails) > 100_000 {
+		l.fails = map[string][]time.Time{} // bound memory under a distributed attack
+	}
+	now := time.Now()
+	for _, k := range []string{"ip:" + ip, "user:" + user} {
+		ts := append(l.recent(k, now), now)
+		if len(ts) > loginMaxUser {
+			ts = ts[len(ts)-loginMaxUser:]
+		}
+		l.fails[k] = ts
+	}
+}
+
+func (l *loginLimiter) ok(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.fails, "ip:"+ip)
 }
 
 func newTOTPSecret() string {
@@ -112,6 +219,7 @@ func (m *Master) apiChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	h, _ := bcrypt.GenerateFromPassword([]byte(req.New), bcrypt.DefaultCost)
 	m.db.Exec(`UPDATE admins SET pass_hash=? WHERE username=?`, string(h), actor(r))
+	m.renewOwnSession(w, r)
 	m.audit(r, "admin.password", actor(r), "")
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
@@ -133,6 +241,7 @@ func (m *Master) apiTOTPEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.db.Exec(`UPDATE admins SET totp_secret=? WHERE username=?`, sec, actor(r))
+	m.renewOwnSession(w, r)
 	m.db.Exec(`DELETE FROM settings WHERE k=?`, "totp_pending:"+actor(r))
 	m.audit(r, "admin.totp_enable", actor(r), "")
 	writeJSON(w, 200, map[string]bool{"ok": true})
@@ -148,6 +257,7 @@ func (m *Master) apiTOTPDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.db.Exec(`UPDATE admins SET totp_secret='' WHERE username=?`, actor(r))
+	m.renewOwnSession(w, r)
 	m.audit(r, "admin.totp_disable", actor(r), "")
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }

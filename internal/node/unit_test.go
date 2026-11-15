@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -187,3 +188,43 @@ func TestPolicyBlockedInbounds(t *testing.T) {
 type fakeCloser struct{ closed bool }
 
 func (f *fakeCloser) Close() error { f.closed = true; return nil }
+
+// The master can point the agent at certificate files; device files and huge files must
+// not be read into memory.
+func TestReadPEMFileBounds(t *testing.T) {
+	if _, err := readPEMFile("/dev/zero"); err == nil {
+		t.Fatal("/dev/zero read")
+	}
+	big := filepath.Join(t.TempDir(), "big.pem")
+	if err := os.WriteFile(big, make([]byte, maxPEMFile+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readPEMFile(big); err == nil {
+		t.Fatal("oversized file read")
+	}
+	ok := filepath.Join(t.TempDir(), "ok.pem")
+	os.WriteFile(ok, []byte("x"), 0o600)
+	if b, err := readPEMFile(ok); err != nil || string(b) != "x" {
+		t.Fatalf("regular file: %q %v", b, err)
+	}
+}
+
+// Device limits use per-user IP refcounts kept by join / leave.
+func TestDeviceLimitRefcount(t *testing.T) {
+	tr := NewTracker()
+	r1 := &connRec{id: 1, user: "u", srcIP: "1.1.1.1"}
+	r2 := &connRec{id: 2, user: "u", srcIP: "1.1.1.1"}
+	tr.join(r1)
+	tr.join(r2)
+	if tr.overDeviceLimit("u", "1.1.1.1", 1) || !tr.overDeviceLimit("u", "2.2.2.2", 1) {
+		t.Fatal("limit 1 with one IP")
+	}
+	tr.leave(r1)
+	if !tr.overDeviceLimit("u", "2.2.2.2", 1) {
+		t.Fatal("IP freed while a connection remains")
+	}
+	tr.leave(r2)
+	if tr.overDeviceLimit("u", "2.2.2.2", 1) || len(tr.ips) != 0 {
+		t.Fatalf("IP not freed: %v", tr.ips)
+	}
+}
