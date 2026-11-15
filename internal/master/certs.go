@@ -129,7 +129,7 @@ func leafInfo(leaf *x509.Certificate) certInfo {
 	}
 	in.SelfSigned = bytesEqual(leaf.RawIssuer, leaf.RawSubject) && leaf.CheckSignature(leaf.SignatureAlgorithm, leaf.RawTBSCertificate, leaf.Signature) == nil
 	if in.SelfSigned {
-		in.Issuer = "自签名"
+		in.Issuer = "Self-signed"
 	}
 	sum := sha256.Sum256(leaf.Raw)
 	in.Fingerprint = hex.EncodeToString(sum[:])
@@ -156,7 +156,7 @@ func parsePEMPair(certPEM, keyPEM string, now time.Time) (certInfo, []byte, []by
 		}
 		c, err := x509.ParseCertificate(blk.Bytes)
 		if err != nil {
-			return certInfo{}, nil, nil, fmt.Errorf("证书解析失败：%v", err)
+			return certInfo{}, nil, nil, fmt.Errorf("Can't parse the certificate: %v", err)
 		}
 		if leaf == nil {
 			leaf = c
@@ -164,21 +164,21 @@ func parsePEMPair(certPEM, keyPEM string, now time.Time) (certInfo, []byte, []by
 		chain = append(chain, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: blk.Bytes})...)
 	}
 	if leaf == nil {
-		return certInfo{}, nil, nil, errors.New("没有找到 PEM 证书（应以 -----BEGIN CERTIFICATE----- 开头）")
+		return certInfo{}, nil, nil, errors.New("No PEM certificate found (it should start with -----BEGIN CERTIFICATE-----)")
 	}
 	kb := []byte(strings.TrimSpace(keyPEM) + "\n")
 	if blk, _ := pem.Decode(kb); blk == nil || !strings.Contains(blk.Type, "PRIVATE KEY") {
-		return certInfo{}, nil, nil, errors.New("没有找到 PEM 私钥（应以 -----BEGIN ... PRIVATE KEY----- 开头）")
+		return certInfo{}, nil, nil, errors.New("No PEM private key found (it should start with -----BEGIN ... PRIVATE KEY-----)")
 	}
 	if _, err := tls.X509KeyPair(chain, kb); err != nil {
 		if strings.Contains(err.Error(), "does not match") {
-			return certInfo{}, nil, nil, errors.New("私钥与证书不匹配")
+			return certInfo{}, nil, nil, errors.New("The private key does not match the certificate")
 		}
-		return certInfo{}, nil, nil, fmt.Errorf("私钥无效：%v", err)
+		return certInfo{}, nil, nil, fmt.Errorf("Invalid private key: %v", err)
 	}
 	in := leafInfo(leaf)
 	if now.After(leaf.NotAfter) {
-		return in, nil, nil, fmt.Errorf("证书已于 %s 过期", leaf.NotAfter.Format(time.DateOnly))
+		return in, nil, nil, fmt.Errorf("The certificate expired on %s", leaf.NotAfter.Format(time.DateOnly))
 	}
 	return in, chain, kb, nil
 }
@@ -405,7 +405,7 @@ func (m *Master) apiCerts(w http.ResponseWriter, r *http.Request) {
 	uses, nodes := m.certUses(), m.nodeNames()
 	out := make([]certOut, 0, len(cs))
 	for _, c := range cs {
-		out = append(out, m.certOut(c, uses, nodes))
+		out = append(out, m.certOut(c, uses, nodes).localize(langOf(w)))
 	}
 	writeJSON(w, 200, out)
 }
@@ -413,10 +413,16 @@ func (m *Master) apiCerts(w http.ResponseWriter, r *http.Request) {
 func (m *Master) apiCert(w http.ResponseWriter, r *http.Request) {
 	c, err := m.getCert(r.PathValue("id"))
 	if err != nil {
-		writeErr(w, 404, "证书不存在")
+		writeErr(w, 404, "Certificate not found")
 		return
 	}
-	writeJSON(w, 200, m.certOut(c, m.certUses(), m.nodeNames()))
+	writeJSON(w, 200, m.certOut(c, m.certUses(), m.nodeNames()).localize(langOf(w)))
+}
+
+// localize translates the stored English issuer placeholder and last error.
+func (o certOut) localize(lang string) certOut {
+	o.Issuer, o.LastError = L(lang, o.Issuer), L(lang, o.LastError)
+	return o
 }
 
 func certName(name string, sans []string) string {
@@ -444,7 +450,7 @@ func (m *Master) apiUploadCert(w http.ResponseWriter, r *http.Request) {
 	}
 	in, chain, key, err := parsePEMPair(req.CertPEM, req.KeyPEM, time.Now())
 	if err != nil {
-		writeJSON(w, 400, map[string]any{"error": err.Error(), "sans": in.SANs, "not_after": unixOr0(in.NotAfter)})
+		writeJSON(w, 400, map[string]any{"error": L(langOf(w), err.Error()), "sans": in.SANs, "not_after": unixOr0(in.NotAfter)})
 		return
 	}
 	preview := map[string]any{"sans": in.SANs, "issuer": in.Issuer, "not_before": in.NotBefore.Unix(), "not_after": in.NotAfter.Unix(),
@@ -484,16 +490,16 @@ func normDomains(ds []string) ([]string, error) {
 			continue
 		}
 		if !fqdnRe.MatchString(d) {
-			return nil, fmt.Errorf("域名格式不正确：%s", d)
+			return nil, fmt.Errorf("Invalid domain: %s", d)
 		}
 		seen[d] = true
 		out = append(out, d)
 	}
 	if len(out) == 0 {
-		return nil, errors.New("至少需要一个域名")
+		return nil, errors.New("At least one domain is required")
 	}
 	if len(out) > 50 {
-		return nil, errors.New("一张证书最多 50 个域名")
+		return nil, errors.New("A certificate can have at most 50 domains")
 	}
 	return out, nil
 }
@@ -518,17 +524,17 @@ func (m *Master) apiIssueCert(w http.ResponseWriter, r *http.Request) {
 		req.CA = "letsencrypt"
 	}
 	if req.CA != "letsencrypt" && req.CA != "zerossl" {
-		writeErr(w, 400, "ca 只能是 letsencrypt 或 zerossl")
+		writeErr(w, 400, "ca must be letsencrypt or zerossl")
 		return
 	}
 	if req.CA == "zerossl" && req.Email == "" {
-		writeErr(w, 400, "ZeroSSL 需要填写邮箱")
+		writeErr(w, 400, "ZeroSSL needs an email address")
 		return
 	}
 	var tokenSet int
 	m.db.QueryRow(`SELECT COUNT(*) FROM dns_providers WHERE id=?`, req.ProviderID).Scan(&tokenSet)
 	if tokenSet == 0 {
-		writeErr(w, 400, "请先连接 DNS 服务商（Cloudflare）")
+		writeErr(w, 400, "Connect a DNS provider (Cloudflare) first")
 		return
 	}
 	if err := m.providerCovers(req.ProviderID, ds); err != nil {
@@ -564,7 +570,7 @@ func (m *Master) apiNodeCert(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Certbot != "" {
 		if !certbotNameRe.MatchString(req.Certbot) {
-			writeErr(w, 400, "certbot 名称不正确")
+			writeErr(w, 400, "Invalid certbot name")
 			return
 		}
 		req.CertPath = "/etc/letsencrypt/live/" + req.Certbot + "/fullchain.pem"
@@ -575,14 +581,14 @@ func (m *Master) apiNodeCert(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, p := range []string{req.CertPath, req.KeyPath} {
 		if !path.IsAbs(p) || strings.ContainsAny(p, "\x00\n") || path.Clean(p) != p {
-			writeErr(w, 400, "证书和私钥需要填写节点上的绝对路径")
+			writeErr(w, 400, "Certificate and key need absolute paths on the node")
 			return
 		}
 	}
 	var n int
 	m.db.QueryRow(`SELECT COUNT(*) FROM nodes WHERE id=?`, req.NodeID).Scan(&n)
 	if n == 0 {
-		writeErr(w, 400, "节点不存在")
+		writeErr(w, 400, "Node not found")
 		return
 	}
 	id := newCertID()
@@ -603,7 +609,7 @@ func (m *Master) apiUpdateCert(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	c, err := m.getCert(id)
 	if err != nil {
-		writeErr(w, 404, "证书不存在")
+		writeErr(w, 404, "Certificate not found")
 		return
 	}
 	var req struct {
@@ -623,14 +629,14 @@ func (m *Master) apiUpdateCert(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.AutoRenew != nil {
 		if *req.AutoRenew && c.Source != certACME {
-			writeErr(w, 400, "只有 ACME 证书可以自动续期（certbot 证书由 certbot 自己续期）")
+			writeErr(w, 400, "Only ACME certificates can auto-renew (certbot renews its own certificates)")
 			return
 		}
 		m.db.Exec(`UPDATE certs SET auto_renew=?, updated_at=? WHERE id=?`, *req.AutoRenew, now(), id)
 	}
 	if req.CertPEM != "" {
 		if c.Source != certUpload {
-			writeErr(w, 400, "只有上传的证书可以替换 PEM")
+			writeErr(w, 400, "Only uploaded certificates can have their PEM replaced")
 			return
 		}
 		in, chain, key, err := parsePEMPair(req.CertPEM, req.KeyPEM, time.Now())
@@ -643,16 +649,16 @@ func (m *Master) apiUpdateCert(w http.ResponseWriter, r *http.Request) {
 		}
 		m.audit(r, "cert.replace", id, strings.Join(in.SANs, ","))
 		m.reconcile(m.certNodes(id)...)
-		addEvent(m.db, "cert_renewed", 0, "", c.Name+" · 已替换为新证书，到期 "+in.NotAfter.In(m.loc).Format(time.DateOnly))
+		addEvent(m.db, "cert_renewed", 0, "", fmt.Sprintf("%s · replaced with a new certificate, expires %s", c.Name, in.NotAfter.In(m.loc).Format(time.DateOnly)))
 	}
 	if req.CertPath != "" || req.KeyPath != "" {
 		if c.Source != certNode {
-			writeErr(w, 400, "只有节点本地证书可以修改路径")
+			writeErr(w, 400, "Only node-local certificates have paths to change")
 			return
 		}
 		cp, kp := nz(req.CertPath, c.CertPath), nz(req.KeyPath, c.KeyPath)
 		if !path.IsAbs(cp) || !path.IsAbs(kp) {
-			writeErr(w, 400, "需要绝对路径")
+			writeErr(w, 400, "Absolute paths are required")
 			return
 		}
 		m.db.Exec(`UPDATE certs SET cert_path=?, key_path=?, updated_at=? WHERE id=?`, cp, kp, now(), id)
@@ -666,13 +672,13 @@ func (m *Master) apiRenewCert(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	c, err := m.getCert(id)
 	if err != nil {
-		writeErr(w, 404, "证书不存在")
+		writeErr(w, 404, "Certificate not found")
 		return
 	}
 	switch c.Source {
 	case certACME:
 		if !m.certs.renewAsync(id) {
-			writeErr(w, 409, "正在续期中")
+			writeErr(w, 409, "Renewal already in progress")
 			return
 		}
 		m.audit(r, "cert.renew", id, "")
@@ -684,9 +690,9 @@ func (m *Master) apiRenewCert(w http.ResponseWriter, r *http.Request) {
 		if s := m.hub.session(c.NodeID); s != nil {
 			m.hub.trySend(s, &pb.MasterMsg{M: &pb.MasterMsg_Spec{Spec: &pb.SpecAvailable{Revision: 0}}})
 		}
-		writeJSON(w, 200, map[string]any{"started": false, "hint": "节点本地证书由 certbot 续期（certbot renew）；已请求节点重新读取文件"})
+		writeJSON(w, 200, map[string]any{"started": false, "hint": T(langOf(w), "Node-local certificates are renewed by certbot (certbot renew); asked the node to reload the files")})
 	default:
-		writeErr(w, 400, "上传的证书无法自动续期：请上传新的 PEM 替换")
+		writeErr(w, 400, "Uploaded certificates can't auto-renew: upload a new PEM to replace it")
 	}
 }
 
@@ -697,7 +703,7 @@ func (m *Master) downloadCert(w http.ResponseWriter, r *http.Request, wantKey bo
 	id := r.PathValue("id")
 	c, err := m.getCert(id)
 	if err != nil || c.Source == certNode {
-		writeErr(w, 404, "证书不存在或保存在节点上")
+		writeErr(w, 404, "Certificate not found, or it is stored on the node")
 		return
 	}
 	chain, key, err := m.certMaterial(id)
@@ -722,7 +728,7 @@ func (m *Master) apiDeleteCert(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	c, err := m.getCert(id)
 	if err != nil {
-		writeErr(w, 404, "证书不存在")
+		writeErr(w, 404, "Certificate not found")
 		return
 	}
 	if uses := m.certUses()[id]; len(uses) > 0 {
@@ -730,7 +736,7 @@ func (m *Master) apiDeleteCert(w http.ResponseWriter, r *http.Request) {
 		for i, u := range uses {
 			tags[i] = u.Node + "/" + u.Tag
 		}
-		writeJSON(w, 409, map[string]any{"error": "证书仍被入站使用：" + strings.Join(tags, "、"), "uses": uses})
+		writeJSON(w, 409, map[string]any{"error": T(langOf(w), "The certificate is still used by inbounds: %s", strings.Join(tags, ", ")), "uses": uses})
 		return
 	}
 	m.db.Exec(`DELETE FROM certs WHERE id=?`, id)

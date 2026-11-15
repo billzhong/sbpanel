@@ -55,7 +55,7 @@ func mihomoSections(c *Compiled) map[string]string {
 		if r.Set.Remote != nil {
 			refs := remotesFor("mihomo", r.Set, c.Mirror)
 			if len(refs) == 0 {
-				c.warn("规则集 %s 没有 mihomo 源，已跳过", r.Set.Name)
+				c.warn("Rule set %s has no mihomo source; skipped", r.Set.Name)
 			}
 			for _, ref := range refs {
 				if providers == 0 {

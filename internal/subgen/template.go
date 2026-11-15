@@ -60,18 +60,18 @@ func render(client, base string, vals map[string]string, opts map[string]string)
 			if strings.HasPrefix(k, "opt.") {
 				v, ok := opts[k[4:]]
 				if !ok {
-					errs = append(errs, "未定义的选项 "+k)
+					errs = append(errs, "Undefined option "+k)
 					return s
 				}
 				if !optRe.MatchString(v) {
-					errs = append(errs, "选项值含非法字符 "+k)
+					errs = append(errs, "Option value contains invalid characters: "+k)
 					return s
 				}
 				return v
 			}
 			v, ok := vals[k]
 			if !ok {
-				errs = append(errs, "未知占位符 {{"+k+"}}")
+				errs = append(errs, "Unknown placeholder {{"+k+"}}")
 				return s
 			}
 			used[k] = true
@@ -80,12 +80,12 @@ func render(client, base string, vals map[string]string, opts map[string]string)
 	}
 	for _, r := range Required[client] {
 		if !used[r] {
-			errs = append(errs, "缺少必需占位符 {{"+r+"}}")
+			errs = append(errs, "Missing required placeholder {{"+r+"}}")
 		}
 	}
 	if len(errs) > 0 {
 		sort.Strings(errs)
-		return "", fmt.Errorf("模板错误: %s", strings.Join(errs, "; "))
+		return "", fmt.Errorf("Template error: %s", strings.Join(errs, "; "))
 	}
 	return strings.Join(lines, "\n"), nil
 }

@@ -26,8 +26,10 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// writeErr writes {"error": msg}. msg is English; it is translated to the caller's language
+// (see i18n.go) when the catalog has it.
 func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"error": msg})
+	writeJSON(w, code, map[string]string{"error": L(langOf(w), msg)})
 }
 
 func readJSON(r *http.Request, v any) error {
@@ -185,7 +187,7 @@ func (m *Master) routes() http.Handler {
 	if m.cfg.Web != nil {
 		mux.Handle("/", spaHandler(m.cfg.Web, m.uiBootScript))
 	}
-	return securityHeaders(rejectOpaqueOrigin(mux))
+	return securityHeaders(withLang(rejectOpaqueOrigin(mux)))
 }
 
 // rejectOpaqueOrigin refuses state-changing /api calls from an opaque origin ("Origin: null"), i.e.
@@ -263,21 +265,22 @@ func (m *Master) apiLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
 		time.Sleep(500 * time.Millisecond)
 		m.db.Exec(`INSERT INTO audit_log(ts, admin, action, target, ip) VALUES(?,?,?,?,?)`, now(), req.Username, "login.failed", "", clientIP(r))
-		writeErr(w, 401, "用户名或密码错误")
+		writeErr(w, 401, "Wrong username or password")
 		return
 	}
 	if totp != "" {
 		if req.Code == "" {
-			writeJSON(w, 401, map[string]any{"error": "请输入两步验证码", "need_totp": true})
+			writeJSON(w, 401, map[string]any{"error": T(langOf(w), "Enter your two-factor code"), "need_totp": true})
 			return
 		}
 		if !totpValid(totp, req.Code, time.Now()) {
 			time.Sleep(500 * time.Millisecond)
-			writeJSON(w, 401, map[string]any{"error": "两步验证码不正确", "need_totp": true})
+			writeJSON(w, 401, map[string]any{"error": T(langOf(w), "Incorrect two-factor code"), "need_totp": true})
 			return
 		}
 	}
 	m.db.Exec(`INSERT INTO audit_log(ts, admin, action, target, ip) VALUES(?,?,?,?,?)`, now(), req.Username, "login", "", clientIP(r))
+	setSetting(m.db, "admin_lang", reqLang(r)) // notifications follow the admin's UI language
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: m.newSession(req.Username), Path: "/", HttpOnly: true,
 		SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
@@ -338,6 +341,10 @@ func (m *Master) apiEvents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	lang := reqLang(r)
+	for i := range out {
+		out[i].Detail = L(lang, out[i].Detail) // also maps legacy Chinese rows back to English
 	}
 	writeJSON(w, 200, out)
 }

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -12,6 +12,12 @@
          Server default (window.__SBP_UI, injected above by sbmaster) <- this browser (localStorage 'sbp-ui'). */
       (function () {
         var d = document.documentElement, ui = {}
+        /* UI language (keep in sync with src/i18n/index.ts): saved choice, else zh* browser locale → zh, else en. */
+        try {
+          var lg = localStorage.getItem('sbp-lang')
+          if (lg !== 'en' && lg !== 'zh') lg = /^zh\b/i.test((navigator.languages && navigator.languages[0]) || navigator.language || '') ? 'zh' : 'en'
+          d.lang = lg === 'zh' ? 'zh-CN' : 'en'
+        } catch (e) {}
         try { ui = Object.assign({}, window.__SBP_UI || {}) } catch (e) {}
         try {
           var own = JSON.parse(localStorage.getItem('sbp-ui') || 'null'), legacy = localStorage.getItem('sbp-theme')

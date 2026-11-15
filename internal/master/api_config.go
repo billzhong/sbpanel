@@ -68,7 +68,7 @@ func (m *Master) saveGroup(id int64, req groupReq) error {
 	defer tx.Rollback()
 	if req.Name != nil {
 		if strings.TrimSpace(*req.Name) == "" {
-			return fmt.Errorf("名称不能为空")
+			return fmt.Errorf("Name is required")
 		}
 		if _, err := tx.Exec(`UPDATE groups SET name=? WHERE id=?`, strings.TrimSpace(*req.Name), id); err != nil {
 			return err
@@ -100,12 +100,12 @@ func (m *Master) saveGroup(id int64, req groupReq) error {
 func (m *Master) apiCreateGroup(w http.ResponseWriter, r *http.Request) {
 	var req groupReq
 	if err := readJSON(r, &req); err != nil || req.Name == nil || strings.TrimSpace(*req.Name) == "" {
-		writeErr(w, 400, "名称不能为空")
+		writeErr(w, 400, "Name is required")
 		return
 	}
 	res, err := m.db.Exec(`INSERT INTO groups(name, created_at) VALUES(?,?)`, strings.TrimSpace(*req.Name), now())
 	if err != nil {
-		writeErr(w, 400, "分组名已存在")
+		writeErr(w, 400, "A group with this name already exists")
 		return
 	}
 	id, _ := res.LastInsertId()
@@ -222,13 +222,13 @@ func (m *Master) apiSaveHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Port < 0 || h.Port > 65535 {
-		writeErr(w, 400, "端口范围 0-65535（0 表示沿用入站端口）")
+		writeErr(w, 400, "Port must be 0-65535 (0 = the inbound's port)")
 		return
 	}
 	var n int
 	m.db.QueryRow(`SELECT COUNT(*) FROM inbounds WHERE id=?`, h.InboundID).Scan(&n)
 	if n == 0 {
-		writeErr(w, 400, "入站不存在")
+		writeErr(w, 400, "Inbound not found")
 		return
 	}
 	if idStr := r.PathValue("id"); idStr != "" {
@@ -298,10 +298,10 @@ func (m *Master) apiTemplates(w http.ResponseWriter, r *http.Request) {
 func validateSkeleton(js string) (string, error) {
 	var v map[string]any
 	if err := json.Unmarshal([]byte(js), &v); err != nil {
-		return "", fmt.Errorf("JSON 格式错误：%v", err)
+		return "", fmt.Errorf("Invalid JSON: %v", err)
 	}
 	if _, ok := v["inbounds"]; ok {
-		return "", fmt.Errorf("模板不能包含 inbounds，入站在「入站」页管理")
+		return "", fmt.Errorf("Templates cannot contain inbounds; manage them on the Inbounds page")
 	}
 	tags := map[string]bool{}
 	if outs, ok := v["outbounds"].([]any); ok {
@@ -309,17 +309,17 @@ func validateSkeleton(js string) (string, error) {
 			om, _ := o.(map[string]any)
 			t := str(om, "tag")
 			if t == "" {
-				return "", fmt.Errorf("每个出站都需要 tag")
+				return "", fmt.Errorf("Every outbound needs a tag")
 			}
 			if tags[t] {
-				return "", fmt.Errorf("出站 tag 重复：%s", t)
+				return "", fmt.Errorf("Duplicate outbound tag: %s", t)
 			}
 			tags[t] = true
 		}
 	}
 	if route := obj(v, "route"); route != nil {
 		if f := str(route, "final"); f != "" && !tags[f] && f != "direct" {
-			return "", fmt.Errorf("route.final 指向不存在的出站：%s", f)
+			return "", fmt.Errorf("route.final points to a missing outbound: %s", f)
 		}
 		hasSniff := false
 		if rules, ok := route["rules"].([]any); ok {
@@ -329,12 +329,12 @@ func validateSkeleton(js string) (string, error) {
 					hasSniff = true
 				}
 				if ob := str(rm, "outbound"); ob != "" && !tags[ob] {
-					return "", fmt.Errorf("路由规则引用了不存在的出站：%s", ob)
+					return "", fmt.Errorf("A route rule references a missing outbound: %s", ob)
 				}
 			}
 		}
 		if !hasSniff {
-			return "", fmt.Errorf("route.rules 需要包含 {\"action\":\"sniff\"}，否则无法统计域名")
+			return "", fmt.Errorf("route.rules must include {\"action\":\"sniff\"}, otherwise domains can't be counted")
 		}
 	}
 	return canonicalJSON(js), nil
@@ -346,7 +346,7 @@ func (m *Master) apiCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		From int64  `json:"from"`
 	}
 	if err := readJSON(r, &req); err != nil || strings.TrimSpace(req.Name) == "" {
-		writeErr(w, 400, "名称不能为空")
+		writeErr(w, 400, "Name is required")
 		return
 	}
 	js := canonicalJSON(DefaultSkeleton)
@@ -355,7 +355,7 @@ func (m *Master) apiCreateTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := m.db.Exec(`INSERT INTO templates(name, json, updated_at) VALUES(?,?,?)`, strings.TrimSpace(req.Name), js, now())
 	if err != nil {
-		writeErr(w, 400, "模板名已存在")
+		writeErr(w, 400, "A template with this name already exists")
 		return
 	}
 	id, _ := res.LastInsertId()
@@ -380,7 +380,7 @@ func (m *Master) apiSaveTemplateDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
 		if _, err := m.db.Exec(`UPDATE templates SET name=? WHERE id=?`, strings.TrimSpace(*req.Name), id); err != nil {
-			writeErr(w, 400, "模板名已存在")
+			writeErr(w, 400, "A template with this name already exists")
 			return
 		}
 	}
@@ -408,7 +408,7 @@ func (m *Master) apiApplyTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	var draft string
 	if err := m.db.QueryRow(`SELECT draft_json FROM templates WHERE id=?`, id).Scan(&draft); err != nil {
-		writeErr(w, 404, "模板不存在")
+		writeErr(w, 404, "Template not found")
 		return
 	}
 	if draft == "" {
@@ -441,12 +441,12 @@ func (m *Master) apiDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	var n int
 	m.db.QueryRow(`SELECT COUNT(*) FROM nodes WHERE template_id=?`, id).Scan(&n)
 	if n > 0 {
-		writeErr(w, 400, "还有节点在使用这个模板")
+		writeErr(w, 400, "Some nodes still use this template")
 		return
 	}
 	m.db.QueryRow(`SELECT COUNT(*) FROM templates`).Scan(&n)
 	if n <= 1 {
-		writeErr(w, 400, "至少保留一个模板")
+		writeErr(w, 400, "Keep at least one template")
 		return
 	}
 	m.db.Exec(`DELETE FROM templates WHERE id=?`, id)
@@ -500,39 +500,39 @@ func (m *Master) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	for k, v := range req {
 		if _, ok := publicSettings[k]; !ok && k != "tg_token" {
-			writeErr(w, 400, "未知设置项："+k)
+			writeErrf(w, 400, "Unknown setting: %s", k)
 			return
 		}
 		v = strings.TrimSpace(v)
 		switch k {
 		case "sub_base_url":
 			if v != "" && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
-				writeErr(w, 400, "订阅地址需以 http:// 或 https:// 开头")
+				writeErr(w, 400, "The subscription URL must start with http:// or https://")
 				return
 			}
 		case "sub_update_hours":
 			if n, err := strconv.Atoi(v); err != nil || n < 1 || n > 168 {
-				writeErr(w, 400, "更新间隔为 1-168 小时")
+				writeErr(w, 400, "Update interval must be 1-168 hours")
 				return
 			}
 		case "device_policy":
 			if v != "reject" && v != "kick_oldest" {
-				writeErr(w, 400, "device_policy 只能是 reject 或 kick_oldest")
+				writeErr(w, 400, "device_policy must be reject or kick_oldest")
 				return
 			}
 		case "sub_announcement":
 			if utf8.RuneCountInString(v) > 2000 {
-				writeErr(w, 400, "公告最多 2000 个字符")
+				writeErr(w, 400, "The announcement can be at most 2000 characters")
 				return
 			}
 		case "sub_rule_mirror":
 			if v != "" && (!(strings.HasPrefix(v, "https://") || strings.HasPrefix(v, "http://")) || !strings.HasSuffix(v, "/") || len(v) > 300) {
-				writeErr(w, 400, "规则镜像前缀需是以 / 结尾的 http(s) 地址，例如 https://ghfast.top/")
+				writeErr(w, 400, "The rule mirror prefix must be an http(s) URL ending in /, e.g. https://ghfast.top/")
 				return
 			}
 		case "sub_logo_url":
 			if v != "" && (!strings.HasPrefix(v, "https://") || len(v) > 1000) {
-				writeErr(w, 400, "Logo 地址需以 https:// 开头")
+				writeErr(w, 400, "The logo URL must start with https://")
 				return
 			}
 		case "sub_support_links", "sub_clients", "ui_appearance":
@@ -574,7 +574,7 @@ func (m *Master) apiUserSub(w http.ResponseWriter, r *http.Request) {
 	}
 	var token string
 	if err := m.db.QueryRow(`SELECT sub_token FROM users WHERE id=?`, id).Scan(&token); err != nil {
-		writeErr(w, 404, "用户不存在")
+		writeErr(w, 404, "User not found")
 		return
 	}
 	u, _ := m.loadSubUser(token)
@@ -626,11 +626,11 @@ func (m *Master) apiBulkUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !userRe.MatchString(req.Prefix) || req.Count < 1 || req.Count > 500 {
-		writeErr(w, 400, "前缀只能包含字母数字 . _ @ -，数量 1-500")
+		writeErr(w, 400, "The prefix may contain letters, digits and . _ @ -; count must be 1-500")
 		return
 	}
 	if !validReset(req.ResetStrategy) {
-		writeErr(w, 400, "重置周期无效")
+		writeErr(w, 400, "Invalid reset period")
 		return
 	}
 	if req.Start <= 0 {
@@ -659,7 +659,7 @@ func (m *Master) apiBulkUsers(w http.ResponseWriter, r *http.Request) {
 		res, err := tx.Exec(`INSERT INTO users(username, sub_token, uuid, password, traffic_limit, expire_at, reset_strategy, last_reset_at, created_at)
 			VALUES(?,?,?,?,?,?,?,?,?)`, name, randHex(12), uuid.NewString(), randHex(12), req.TrafficLimit, exp, nz(req.ResetStrategy, "none"), now(), now())
 		if err != nil {
-			writeErr(w, 400, "用户名冲突："+name)
+			writeErrf(w, 400, "Username conflict: %s", name)
 			return
 		}
 		id, _ := res.LastInsertId()

@@ -92,9 +92,9 @@ func (m *Master) guard(scope string, h http.HandlerFunc) http.HandlerFunc {
 		}
 		if !p.can(scope) {
 			if scope == scopeSession {
-				writeErr(w, http.StatusForbidden, "此操作需要登录面板（API 密钥不可用）")
+				writeErr(w, http.StatusForbidden, "This action requires a panel login (API keys are not allowed)")
 			} else {
-				writeErr(w, http.StatusForbidden, "权限不足：需要 "+scope+" 权限")
+				writeErrf(w, http.StatusForbidden, "Permission denied: requires the %s scope", scope)
 			}
 			return
 		}
@@ -124,12 +124,12 @@ func (m *Master) authenticate(w http.ResponseWriter, r *http.Request, bearerOnly
 	}
 	if k.ExpiresAt > 0 && k.ExpiresAt <= now() {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="sbpanel", error="invalid_token", error_description="expired"`)
-		writeErr(w, http.StatusUnauthorized, "API 密钥已过期")
+		writeErr(w, http.StatusUnauthorized, "API key expired")
 		return nil, ""
 	}
 	ip := clientIP(r)
 	if !ipAllowed(k.AllowIPs, ip) {
-		writeErr(w, http.StatusForbidden, "来源 IP 不在此密钥的允许列表中")
+		writeErr(w, http.StatusForbidden, "Source IP is not in this key's allowlist")
 		return nil, ""
 	}
 	ks := m.keyState()
@@ -137,7 +137,7 @@ func (m *Master) authenticate(w http.ResponseWriter, r *http.Request, bearerOnly
 		w.Header().Set("Retry-After", strconv.Itoa(retry))
 		w.Header().Set("X-RateLimit-Limit", strconv.FormatInt(k.RateLimit, 10))
 		w.Header().Set("X-RateLimit-Remaining", "0")
-		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("请求过于频繁，请 %d 秒后重试", retry))
+		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("Too many requests, retry in %d s", retry))
 		return nil, ""
 	} else {
 		w.Header().Set("X-RateLimit-Limit", strconv.FormatInt(k.RateLimit, 10))
@@ -231,13 +231,13 @@ func normalizeAllowList(items []string) ([]string, error) {
 		if strings.Contains(it, "/") {
 			_, n, err := net.ParseCIDR(it)
 			if err != nil {
-				return nil, fmt.Errorf("无效的 CIDR：%s", it)
+				return nil, fmt.Errorf("Invalid CIDR: %s", it)
 			}
 			it = n.String()
 		} else {
 			ip := net.ParseIP(it)
 			if ip == nil {
-				return nil, fmt.Errorf("无效的 IP：%s", it)
+				return nil, fmt.Errorf("Invalid IP: %s", it)
 			}
 			it = ip.String()
 		}
@@ -246,7 +246,7 @@ func normalizeAllowList(items []string) ([]string, error) {
 		}
 	}
 	if len(out) > 100 {
-		return nil, fmt.Errorf("允许列表最多 100 项")
+		return nil, fmt.Errorf("The allowlist can have at most 100 entries")
 	}
 	return out, nil
 }
@@ -361,10 +361,10 @@ func (req *keyReq) normalize() error {
 	req.Name = strings.TrimSpace(req.Name)
 	req.Description = strings.TrimSpace(req.Description)
 	if req.Name == "" || len([]rune(req.Name)) > 64 {
-		return fmt.Errorf("名称不能为空，最长 64 个字符")
+		return fmt.Errorf("Name is required (up to 64 characters)")
 	}
 	if len([]rune(req.Description)) > 500 {
-		return fmt.Errorf("描述最长 500 个字符")
+		return fmt.Errorf("Description can be at most 500 characters")
 	}
 	if req.Scopes == nil {
 		req.Scopes = []string{ScopeAdmin} // old clients ({name} only) keep full access
@@ -373,25 +373,25 @@ func (req *keyReq) normalize() error {
 	for _, s := range req.Scopes {
 		s = strings.TrimSpace(s)
 		if !slices.Contains(AllScopes, s) {
-			return fmt.Errorf("未知权限：%s（可选 %s）", s, strings.Join(AllScopes, ", "))
+			return fmt.Errorf("Unknown scope: %s (valid: %s)", s, strings.Join(AllScopes, ", "))
 		}
 		if !slices.Contains(scopes, s) {
 			scopes = append(scopes, s)
 		}
 	}
 	if len(scopes) == 0 {
-		return fmt.Errorf("至少选择一个权限")
+		return fmt.Errorf("Select at least one scope")
 	}
 	sort.SliceStable(scopes, func(i, j int) bool { return slices.Index(AllScopes, scopes[i]) < slices.Index(AllScopes, scopes[j]) })
 	req.Scopes = scopes
 	if req.ExpiresInDays < 0 || req.ExpiresInDays > 3650 {
-		return fmt.Errorf("有效期为 1-3650 天")
+		return fmt.Errorf("Validity must be 1-3650 days")
 	}
 	if req.ExpiresInDays > 0 {
 		req.ExpiresAt = now() + req.ExpiresInDays*86400
 	}
 	if req.ExpiresAt < 0 || (req.ExpiresAt > 0 && req.ExpiresAt <= now()) {
-		return fmt.Errorf("过期时间必须晚于现在")
+		return fmt.Errorf("Expiry must be in the future")
 	}
 	ips, err := normalizeAllowList(req.AllowIPs)
 	if err != nil {
@@ -399,10 +399,10 @@ func (req *keyReq) normalize() error {
 	}
 	req.AllowIPs = ips
 	if req.RateLimit < 0 || req.RateLimit > maxRatePerMin {
-		return fmt.Errorf("速率限制为 1-%d 次/分钟（0 为默认 %d）", maxRatePerMin, defaultRatePerMin)
+		return fmt.Errorf("Rate limit must be 1-%d requests/min (0 = default %d)", maxRatePerMin, defaultRatePerMin)
 	}
 	if req.RateBurst < 0 || req.RateBurst > maxRatePerMin {
-		return fmt.Errorf("突发上限为 1-%d", maxRatePerMin)
+		return fmt.Errorf("Burst must be 1-%d", maxRatePerMin)
 	}
 	return nil
 }
@@ -410,7 +410,7 @@ func (req *keyReq) normalize() error {
 func (m *Master) apiCreateToken(w http.ResponseWriter, r *http.Request) {
 	var req keyReq
 	if err := readJSON(r, &req); err != nil {
-		writeErr(w, 400, "请求格式错误")
+		writeErr(w, 400, "Malformed request")
 		return
 	}
 	if err := req.normalize(); err != nil {
@@ -420,7 +420,7 @@ func (m *Master) apiCreateToken(w http.ResponseWriter, r *http.Request) {
 	var dup int
 	m.db.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE name=?`, req.Name).Scan(&dup)
 	if dup > 0 {
-		writeErr(w, 400, "已有同名密钥")
+		writeErr(w, 400, "A key with this name already exists")
 		return
 	}
 	tok := keyPrefix + randHex(24)
@@ -449,7 +449,7 @@ func (m *Master) apiDeleteToken(w http.ResponseWriter, r *http.Request) {
 	}
 	var name string
 	if m.db.QueryRow(`SELECT name FROM api_tokens WHERE id=?`, id).Scan(&name) != nil {
-		writeErr(w, 404, "密钥不存在")
+		writeErr(w, 404, "Key not found")
 		return
 	}
 	m.db.Exec(`DELETE FROM api_tokens WHERE id=?`, id)
@@ -460,16 +460,20 @@ func (m *Master) apiDeleteToken(w http.ResponseWriter, r *http.Request) {
 
 // apiScopes describes the grantable scopes (used by the UI and agents).
 func (m *Master) apiScopes(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, scopeInfo())
+	out := scopeInfo()
+	for _, s := range out {
+		s["label"], s["description"] = T(langOf(w), s["label"]), T(langOf(w), s["description"])
+	}
+	writeJSON(w, 200, out)
 }
 
 func scopeInfo() []map[string]string {
 	desc := map[string][2]string{
-		ScopeRead:          {"只读", "读取所有 GET 接口：用户、节点、入站、流量、事件、设置（不含密钥管理和备份）"},
-		ScopeUsersWrite:    {"用户写入", "创建、修改、删除用户，批量操作、续期、加流量、重置用量、踢下线"},
-		ScopeNodesWrite:    {"节点写入", "节点、入站、分组、Host、路由模板、订阅分流方案"},
-		ScopeSettingsWrite: {"设置写入", "面板设置、外观、订阅页主题、通知渠道"},
-		ScopeAdmin:         {"管理员", "全部权限，包括管理 API 密钥、下载备份、3x-ui 导入"},
+		ScopeRead:          {"Read only", "All GET endpoints: users, nodes, inbounds, traffic, events, settings (not key management or backups)"},
+		ScopeUsersWrite:    {"Users: write", "Create, edit and delete users; batch actions, extend, add traffic, reset usage, kick"},
+		ScopeNodesWrite:    {"Nodes: write", "Nodes, inbounds, groups, hosts, route templates and routing profiles"},
+		ScopeSettingsWrite: {"Settings: write", "Panel settings, appearance, subscription-page themes, notification channels"},
+		ScopeAdmin:         {"Admin", "Everything, including API key management, backups and 3x-ui import"},
 	}
 	out := []map[string]string{}
 	for _, s := range AllScopes {

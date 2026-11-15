@@ -65,6 +65,7 @@ type api struct {
 	base string
 	hc   *http.Client
 	auth string
+	lang string // sent as X-Lang when set (the web UI always sends it; empty = English)
 }
 
 // call returns status and body without failing the test.
@@ -79,6 +80,9 @@ func (a *api) call(method, path string, body any) (int, []byte) {
 	req.Header.Set("Content-Type", "application/json")
 	if a.auth != "" {
 		req.Header.Set("Authorization", a.auth)
+	}
+	if a.lang != "" {
+		req.Header.Set("X-Lang", a.lang)
 	}
 	resp, err := a.hc.Do(req)
 	if err != nil {
@@ -446,5 +450,5 @@ func (e *env) realityOpts(port int) map[string]any {
 
 var nullLog = log.New(io.Discard, "", 0)
 
-func containsStr(s, sub string) bool { return strings.Contains(s, sub) }
-func replaceAll(s, a, b string) string  { return strings.ReplaceAll(s, a, b) }
+func containsStr(s, sub string) bool   { return strings.Contains(s, sub) }
+func replaceAll(s, a, b string) string { return strings.ReplaceAll(s, a, b) }

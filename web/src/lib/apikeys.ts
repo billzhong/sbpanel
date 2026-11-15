@@ -1,4 +1,6 @@
 // Scoped API keys and agent (MCP) helpers.
+import { tr } from '../i18n'
+import { K } from '../i18n/apikeys'
 
 export type Scope = 'read' | 'users:write' | 'nodes:write' | 'settings:write' | 'admin'
 
@@ -14,11 +16,11 @@ export type ApiKeyCreate = {
 }
 
 export const SCOPES: { id: Scope; label: string; desc: string }[] = [
-  { id: 'read', label: '只读', desc: '读取用户、节点、入站、流量、事件和设置（不含密钥管理与备份）' },
-  { id: 'users:write', label: '用户写入', desc: '创建、修改、删除用户，续期、加流量、重置用量、批量操作、踢下线' },
-  { id: 'nodes:write', label: '节点写入', desc: '节点、入站、分组、Host、路由模板与订阅分流方案' },
-  { id: 'settings:write', label: '设置写入', desc: '面板设置、外观、订阅页主题、通知渠道' },
-  { id: 'admin', label: '管理员', desc: '全部权限，包括管理 API 密钥、下载备份和 3x-ui 导入' },
+  { id: 'read', get label() { return tr(K).s_read }, get desc() { return tr(K).s_read_d } },
+  { id: 'users:write', get label() { return tr(K).s_users }, get desc() { return tr(K).s_users_d } },
+  { id: 'nodes:write', get label() { return tr(K).s_nodes }, get desc() { return tr(K).s_nodes_d } },
+  { id: 'settings:write', get label() { return tr(K).s_settings }, get desc() { return tr(K).s_settings_d } },
+  { id: 'admin', get label() { return tr(K).s_admin }, get desc() { return tr(K).s_admin_d } },
 ]
 export const scopeLabel = (s: string) => SCOPES.find((x) => x.id === s)?.label ?? s
 
@@ -26,21 +28,21 @@ export const DEFAULT_RATE = 120
 
 /** MCP tools the server exposes, for display (the server's tools/list is authoritative). */
 export const MCP_TOOLS: { name: string; write: boolean; desc: string }[] = [
-  { name: 'list_users', write: false, desc: '列出/搜索用户' },
-  { name: 'get_user', write: false, desc: '用户详情与订阅链接' },
-  { name: 'traffic_summary', write: false, desc: '按用户/节点/入站/域名汇总流量' },
-  { name: 'top_domains', write: false, desc: '热门域名' },
-  { name: 'list_nodes', write: false, desc: '节点健康' },
-  { name: 'list_inbounds', write: false, desc: '入站列表' },
-  { name: 'list_events', write: false, desc: '事件与审计' },
-  { name: 'get_live_connections', write: false, desc: '在线用户与实时连接' },
-  { name: 'create_user', write: true, desc: '创建用户' },
-  { name: 'update_user', write: true, desc: '修改用户' },
-  { name: 'extend_user', write: true, desc: '续期' },
-  { name: 'add_traffic', write: true, desc: '加流量' },
-  { name: 'set_user_enabled', write: true, desc: '启用/禁用' },
-  { name: 'reset_usage', write: true, desc: '重置用量' },
-  { name: 'kick_user', write: true, desc: '踢下线' },
+  { name: 'list_users', write: false, get desc() { return tr(K).list_users } },
+  { name: 'get_user', write: false, get desc() { return tr(K).get_user } },
+  { name: 'traffic_summary', write: false, get desc() { return tr(K).traffic_summary } },
+  { name: 'top_domains', write: false, get desc() { return tr(K).top_domains } },
+  { name: 'list_nodes', write: false, get desc() { return tr(K).list_nodes } },
+  { name: 'list_inbounds', write: false, get desc() { return tr(K).list_inbounds } },
+  { name: 'list_events', write: false, get desc() { return tr(K).list_events } },
+  { name: 'get_live_connections', write: false, get desc() { return tr(K).get_live_connections } },
+  { name: 'create_user', write: true, get desc() { return tr(K).create_user } },
+  { name: 'update_user', write: true, get desc() { return tr(K).update_user } },
+  { name: 'extend_user', write: true, get desc() { return tr(K).extend_user } },
+  { name: 'add_traffic', write: true, get desc() { return tr(K).add_traffic } },
+  { name: 'set_user_enabled', write: true, get desc() { return tr(K).set_user_enabled } },
+  { name: 'reset_usage', write: true, get desc() { return tr(K).reset_usage } },
+  { name: 'kick_user', write: true, get desc() { return tr(K).kick_user } },
 ]
 
 export const panelOrigin = () => location.origin

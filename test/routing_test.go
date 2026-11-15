@@ -156,9 +156,14 @@ func TestRoutingProfiles(t *testing.T) {
 		"clients": map[string]any{"singbox": map[string]any{"enabled": true, "base": `{"outbounds": {{outbounds}}, "route": {"rules": {{route_rules}}, "rule_set": {{rule_set}}, "final": {{final}}}, "inbounds": [{"type":"tun","tag":"tun-in","address":["172.19.0.1/30"],"auto_route":true}]}`}},
 	}
 	path := fmt.Sprintf("/api/routing/profiles/%d", created.ID)
-	if msg := e.api.expect(400, "PUT", path+"/draft", map[string]any{"draft": draft}); !strings.Contains(msg, "循环") {
+	if msg := e.api.expect(400, "PUT", path+"/draft", map[string]any{"draft": draft}); !strings.Contains(msg, "reference cycle") {
 		t.Fatalf("cycle accepted: %s", msg)
 	}
+	e.api.lang = "zh"
+	if msg := e.api.expect(400, "PUT", path+"/draft", map[string]any{"draft": draft}); !strings.Contains(msg, "循环") {
+		t.Fatalf("cycle accepted (zh): %s", msg)
+	}
+	e.api.lang = ""
 	draft["groups"] = draft["groups"].([]any)[:1]
 	e.api.expect(200, "PUT", path+"/draft", map[string]any{"draft": draft})
 	var preview struct {

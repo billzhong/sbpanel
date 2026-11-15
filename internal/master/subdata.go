@@ -131,9 +131,21 @@ type subPageData struct {
 	Clients      []subClient     `json:"clients"`
 	Nodes        []subNodeJSON   `json:"nodes"`
 	Theme        subThemeRef     `json:"theme"`
-	// routing profiles the user may pick (配置模板); selected_profile is the one in effect
+	// routing profiles the user may pick; selected_profile is the one in effect
 	Profiles        []subProfileOption `json:"profiles"`
 	SelectedProfile string             `json:"selected_profile"`
+	// the visitor's language (see subLang): "en" or "zh", and the matching BCP 47 tag
+	Lang   string `json:"lang"`
+	Locale string `json:"locale"`
+}
+
+// subLang is the subscription page's language: ?lang=en|zh (the theme's switcher; the page is
+// sandboxed, so the choice lives in the URL), else the browser's Accept-Language, else English.
+func subLang(r *http.Request) string {
+	if v := r.URL.Query().Get("lang"); v != "" {
+		return langFromTag(v)
+	}
+	return acceptLang(r.Header.Get("Accept-Language"))
 }
 
 // nextReset is when the current usage period ends (0 for "none").
@@ -350,7 +362,16 @@ func (m *Master) subData(r *http.Request, u subUser, es []subEntry, t *subTheme)
 		Clients:      m.clientsFor(link, u.Username, m.allowedClients()), Nodes: nodes,
 		Theme:    subThemeRef{ID: t.ID, Version: t.Version, Settings: m.themeSettings(t, nil)},
 		Profiles: profiles, SelectedProfile: selected,
+		Lang: subLang(r), Locale: contentLanguage(subLang(r)),
+	}.localizeProfiles()
+}
+
+// localizeProfiles shows untouched built-in profile names in the page language (presetText).
+func (d subPageData) localizeProfiles() subPageData {
+	for i := range d.Profiles {
+		d.Profiles[i].Name, d.Profiles[i].Description = presetText(d.Lang, d.Profiles[i].Name), presetText(d.Lang, d.Profiles[i].Description)
 	}
+	return d
 }
 
 // previewData is a synthetic subscription for the admin theme preview (no real token or user).
@@ -366,10 +387,10 @@ func (m *Master) previewData(r *http.Request, t *subTheme, override map[string]a
 		u.Status, u.ExpireAt = "expired", now.Add(-24*time.Hour).Unix()
 	}
 	es := []subEntry{
-		{Remark: "🇺🇸 洛杉矶 CN2", Type: "vless", Address: "la.example.com", Port: 443, UUID: u.UUID, Flow: "xtls-rprx-vision", Security: "reality", SNI: "www.microsoft.com", FP: "chrome", PBK: "preview", Network: "tcp"},
-		{Remark: "东京 IIJ", Type: "vmess", Address: "tyo.example.com", Port: 443, UUID: u.UUID, Security: "tls", SNI: "tyo.example.com", Network: "ws", Path: "/ws"},
-		{Remark: "香港 HKT", Type: "trojan", Address: "hk.example.com", Port: 8443, Password: u.Password, Security: "tls", SNI: "hk.example.com", Network: "grpc", Service: "grpc"},
-		{Remark: "新加坡 Hysteria2", Type: "hysteria2", Address: "sg.example.com", Port: 20443, Password: u.Password, Security: "tls", SNI: "sg.example.com"},
+		{Remark: "🇺🇸 Los Angeles CN2", Type: "vless", Address: "la.example.com", Port: 443, UUID: u.UUID, Flow: "xtls-rprx-vision", Security: "reality", SNI: "www.microsoft.com", FP: "chrome", PBK: "preview", Network: "tcp"},
+		{Remark: "Tokyo IIJ", Type: "vmess", Address: "tyo.example.com", Port: 443, UUID: u.UUID, Security: "tls", SNI: "tyo.example.com", Network: "ws", Path: "/ws"},
+		{Remark: "Hong Kong HKT", Type: "trojan", Address: "hk.example.com", Port: 8443, Password: u.Password, Security: "tls", SNI: "hk.example.com", Network: "grpc", Service: "grpc"},
+		{Remark: "Singapore Hysteria2", Type: "hysteria2", Address: "sg.example.com", Port: 20443, Password: u.Password, Security: "tls", SNI: "sg.example.com"},
 	}
 	if u.Status != "active" {
 		es = nil
@@ -381,8 +402,10 @@ func (m *Master) previewData(r *http.Request, t *subTheme, override map[string]a
 				NextAt: nextReset(u.ResetStrategy, time.Unix(u.CreatedAt, 0), now, m.loc)}},
 		Subscription: subSubscription{URL: link, QR: string(qrDataURI(link)), UpdateHours: 12, Formats: subFormats(link)},
 		Clients:      m.clientsFor(link, u.Username, m.allowedClients()), Nodes: []subNodeJSON{},
-		Theme: subThemeRef{ID: t.ID, Version: t.Version, Settings: m.themeSettings(t, override)}}
+		Theme: subThemeRef{ID: t.ID, Version: t.Version, Settings: m.themeSettings(t, override)},
+		Lang:  subLang(r), Locale: contentLanguage(subLang(r))}
 	d.Profiles, d.SelectedProfile, _ = m.profileOptions(subUser{ID: -1, Username: u.Username}, link, "")
+	d = d.localizeProfiles()
 	if u.ExpireAt > 0 {
 		dl := int((u.ExpireAt - now.Unix() + 86399) / 86400)
 		d.User.DaysLeft = &dl
@@ -401,20 +424,20 @@ func validateSupportLinks(v string) (string, error) {
 	}
 	var ls []subSupportLink
 	if err := json.Unmarshal([]byte(v), &ls); err != nil {
-		return "", fmt.Errorf("联系方式格式错误")
+		return "", fmt.Errorf("Invalid support links")
 	}
 	if len(ls) > 8 {
-		return "", fmt.Errorf("联系方式最多 8 条")
+		return "", fmt.Errorf("At most 8 support links")
 	}
 	for i := range ls {
 		l := &ls[i]
 		l.Label, l.URL = strings.TrimSpace(l.Label), strings.TrimSpace(l.URL)
 		if l.Label == "" || utf8.RuneCountInString(l.Label) > 40 {
-			return "", fmt.Errorf("第 %d 条联系方式缺少名称或名称过长", i+1)
+			return "", fmt.Errorf("Support link %d: the label is missing or too long", i+1)
 		}
 		low := strings.ToLower(l.URL)
 		if !(strings.HasPrefix(low, "https://") || strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "mailto:") || strings.HasPrefix(low, "tg://")) || len(l.URL) > 500 {
-			return "", fmt.Errorf("第 %d 条链接需以 https://、mailto: 或 tg:// 开头", i+1)
+			return "", fmt.Errorf("Support link %d must start with https://, mailto: or tg://", i+1)
 		}
 		switch l.Icon {
 		case "", "telegram", "book", "mail", "link", "chat":
@@ -441,7 +464,7 @@ func validateClientList(v string) (string, error) {
 			continue
 		}
 		if !known[id] {
-			return "", fmt.Errorf("未知客户端：%s", id)
+			return "", fmt.Errorf("Unknown client: %s", id)
 		}
 		out = append(out, id)
 	}
@@ -474,7 +497,7 @@ func validateAppearance(v string) (string, error) {
 	}
 	var a uiAppearance
 	if err := json.Unmarshal([]byte(v), &a); err != nil {
-		return "", fmt.Errorf("外观设置格式错误")
+		return "", fmt.Errorf("Invalid appearance settings")
 	}
 	in := func(s string, ok ...string) bool {
 		for _, o := range ok {
@@ -486,15 +509,15 @@ func validateAppearance(v string) (string, error) {
 	}
 	if !in(a.Mode, "", "system", "light", "dark") || !in(a.Palette, "", "neutral", "rosepine", "catppuccin", "nord") ||
 		!in(a.Radius, "", "default", "sharp", "round") || !in(a.Density, "", "default", "compact") {
-		return "", fmt.Errorf("外观设置包含无效值")
+		return "", fmt.Errorf("Appearance settings contain invalid values")
 	}
 	if a.Accent != nil {
 		if a.Accent.Source != "" && !hexColorRe.MatchString(a.Accent.Source) {
-			return "", fmt.Errorf("强调色格式错误")
+			return "", fmt.Errorf("Invalid accent color")
 		}
 		for _, c := range []string{a.Accent.Light.Accent, a.Accent.Light.AccentText, a.Accent.Light.OnAccent, a.Accent.Dark.Accent, a.Accent.Dark.AccentText, a.Accent.Dark.OnAccent} {
 			if !hexColorRe.MatchString(c) {
-				return "", fmt.Errorf("强调色格式错误")
+				return "", fmt.Errorf("Invalid accent color")
 			}
 		}
 	}

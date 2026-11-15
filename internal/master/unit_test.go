@@ -31,7 +31,7 @@ func newTestMaster(t *testing.T) *Master {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { m.db.Close() })
+	t.Cleanup(func() { m.stopBackground(); m.db.Close() })
 	return m
 }
 

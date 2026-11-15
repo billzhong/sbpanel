@@ -2,6 +2,8 @@ import { Suspense, lazy, useLayoutEffect, useRef, useState, type ComponentProps,
 import { line, curveMonotoneX } from 'd3-shape'
 import { bytes, pct } from '../lib/fmt'
 import { cx } from './kit'
+import { tr } from '../i18n'
+import { C } from '../i18n/common'
 import { seriesColor } from './chart/theme'
 import { useFlip, useTween } from './chart/motion'
 import type { ChartSeries } from './chart/TimeSeriesChart'
@@ -60,7 +62,7 @@ function useWidth<T extends HTMLElement>() {
 }
 
 /** Ranked list with a proportional bar: the "share" view for domains, IPs, users. */
-export function ShareList({ rows, total, onSelect, emptyText = '暂无数据', mono }: {
+export function ShareList({ rows, total, onSelect, emptyText, mono }: {
   rows: { key: string; label: string; value: number; extra?: ReactNode }[]; total?: number
   onSelect?: (key: string) => void; emptyText?: string; mono?: boolean
 }) {
@@ -68,7 +70,7 @@ export function ShareList({ rows, total, onSelect, emptyText = '暂无数据', m
   const max = rows.reduce((a, r) => Math.max(a, r.value), 0)
   // Rows keep their DOM node by key, so a re-rank slides them (FLIP) instead of swapping text in place.
   const list = useFlip<HTMLUListElement>(rows.map((r) => r.key).join('\u0000'))
-  if (rows.length === 0) return <div className="py-8 text-center text-[13px] text-muted">{emptyText}</div>
+  if (rows.length === 0) return <div className="py-8 text-center text-[13px] text-muted">{emptyText ?? tr(C).noData}</div>
   return (
     <ul ref={list} className="flex flex-col">
       {rows.map((r) => {

@@ -190,12 +190,19 @@ func (m *Master) eventOnce(kind string, uid int64, node, detail string, window t
 
 var eventHook func(kind string, userID int64, nodeID, detail string)
 
+// eventText titles notifications; the text after the emoji is a catalog key (i18n_zh.go).
 var eventText = map[string]string{
-	"node_offline": "🔴 节点离线", "node_online": "🟢 节点恢复", "quota_exceeded": "⚠️ 用户流量用尽", "user_expired": "⌛ 用户到期",
-	"users_expired": "⌛ 用户到期", "node_quota": "📈 节点月流量告警", "apply_failed": "❗ 节点配置下发失败", "device_limit": "📱 设备数超限",
-	"node_enrolled": "🆕 节点接入", "usage_reset": "🔄 用量已重置", "user_reactivated": "✅ 用户恢复",
-	"cert_renewed": "🔐 证书已续期", "cert_renew_failed": "❗ 证书续期失败", "cert_expiring": "⏳ 证书即将过期",
-	"inbound_unreachable": "🔴 入站不可达", "inbound_recovered": "🟢 入站恢复",
+	"node_offline": "🔴 Node offline", "node_online": "🟢 Node back online", "quota_exceeded": "⚠️ User out of traffic", "user_expired": "⌛ User expired",
+	"users_expired": "⌛ Users expired", "node_quota": "📈 Node monthly traffic alert", "apply_failed": "❗ Node config deploy failed", "device_limit": "📱 Device limit exceeded",
+	"node_enrolled": "🆕 Node enrolled", "usage_reset": "🔄 Usage reset", "user_reactivated": "✅ User reactivated",
+	"cert_renewed": "🔐 Certificate renewed", "cert_renew_failed": "❗ Certificate renewal failed", "cert_expiring": "⏳ Certificate expiring",
+	"inbound_unreachable": "🔴 Inbound unreachable", "inbound_recovered": "🟢 Inbound recovered",
+}
+
+// notifyLang is the language of Telegram / webhook notifications: that of the last admin sign-in
+// (recorded by apiLogin), English by default.
+func (m *Master) notifyLang() string {
+	return langFromTag(settingOr(m.db, "admin_lang", langEN))
 }
 
 func (m *Master) onEvent(kind string, userID int64, nodeID, detail string) {
@@ -203,10 +210,21 @@ func (m *Master) onEvent(kind string, userID int64, nodeID, detail string) {
 	if !strings.Contains(","+enabled+",", ","+kind+",") {
 		return
 	}
+	select {
+	case <-m.quit:
+		return // shutting down
+	default:
+	}
+	m.bg.Add(1)
 	go func() {
+		defer m.bg.Done()
 		if kind == "node_offline" {
 			// ignore restarts and short blips
-			time.Sleep(60 * time.Second)
+			select {
+			case <-time.After(60 * time.Second):
+			case <-m.quit:
+				return
+			}
 			if m.hub.session(nodeID) != nil {
 				return
 			}
@@ -216,23 +234,26 @@ func (m *Master) onEvent(kind string, userID int64, nodeID, detail string) {
 }
 
 func (m *Master) formatEvent(kind string, userID int64, nodeID, detail string) string {
+	lang := m.notifyLang()
 	title := eventText[kind]
 	if title == "" {
 		title = kind
+	} else if emoji, text, ok := strings.Cut(title, " "); ok {
+		title = emoji + " " + T(lang, text)
 	}
 	var parts []string
 	if nodeID != "" {
 		var n string
 		m.db.QueryRow(`SELECT name FROM nodes WHERE id=?`, nodeID).Scan(&n)
-		parts = append(parts, "节点："+nz(n, nodeID))
+		parts = append(parts, T(lang, "Node: %s", nz(n, nodeID)))
 	}
 	if userID > 0 {
 		var u string
 		m.db.QueryRow(`SELECT username FROM users WHERE id=?`, userID).Scan(&u)
-		parts = append(parts, "用户："+nz(u, fmtID(userID)))
+		parts = append(parts, T(lang, "User: %s", nz(u, fmtID(userID))))
 	}
 	if detail != "" {
-		parts = append(parts, detail)
+		parts = append(parts, L(lang, detail))
 	}
 	return settingOr(m.db, "sub_title", "sbpanel") + " · " + title + "\n" + strings.Join(parts, "\n")
 }
@@ -276,10 +297,10 @@ func (m *Master) sendNotify(text string) error {
 
 func (m *Master) apiNotifyTest(w http.ResponseWriter, r *http.Request) {
 	if settingOr(m.db, "tg_token", "") == "" && settingOr(m.db, "webhook_url", "") == "" {
-		writeErr(w, 400, "还没有配置 Telegram 或 Webhook")
+		writeErr(w, 400, "No Telegram or webhook is configured yet")
 		return
 	}
-	if err := m.sendNotify(settingOr(m.db, "sub_title", "sbpanel") + " · 测试通知\n通知渠道工作正常。"); err != nil {
+	if err := m.sendNotify(settingOr(m.db, "sub_title", "sbpanel") + " · " + T(reqLang(r), "Test notification") + "\n" + T(reqLang(r), "The notification channel works.")); err != nil {
 		writeErr(w, 502, err.Error())
 		return
 	}
@@ -310,7 +331,7 @@ func (m *Master) apiBackup(w http.ResponseWriter, r *http.Request) {
 func (m *Master) apiNodeConns(w http.ResponseWriter, r *http.Request) {
 	s := m.hub.session(r.PathValue("id"))
 	if s == nil {
-		writeErr(w, 409, "节点离线")
+		writeErr(w, 409, "Node is offline")
 		return
 	}
 	s.mu.Lock()
@@ -350,7 +371,7 @@ func (m *Master) apiCloseConns(w http.ResponseWriter, r *http.Request) {
 	}
 	s := m.hub.session(r.PathValue("id"))
 	if s == nil {
-		writeErr(w, 409, "节点离线")
+		writeErr(w, 409, "Node is offline")
 		return
 	}
 	m.hub.trySend(s, &pb.MasterMsg{M: &pb.MasterMsg_CloseConns{CloseConns: &pb.CloseConns{Ids: req.IDs}}})

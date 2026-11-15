@@ -135,7 +135,7 @@ func (m *Master) apiCreateNode(w http.ResponseWriter, r *http.Request) {
 		TemplateID    int64  `json:"template_id"`
 	}
 	if err := readJSON(r, &req); err != nil || strings.TrimSpace(req.Name) == "" {
-		writeErr(w, 400, "节点名称不能为空")
+		writeErr(w, 400, "Node name is required")
 		return
 	}
 	if req.TemplateID == 0 {
@@ -185,7 +185,7 @@ func (m *Master) apiUpdateNode(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name != nil {
 		if strings.TrimSpace(*req.Name) == "" {
-			writeErr(w, 400, "节点名称不能为空")
+			writeErr(w, 400, "Node name is required")
 			return
 		}
 		m.db.Exec(`UPDATE nodes SET name=? WHERE id=?`, strings.TrimSpace(*req.Name), id)
@@ -197,7 +197,7 @@ func (m *Master) apiUpdateNode(w http.ResponseWriter, r *http.Request) {
 		var n int
 		m.db.QueryRow(`SELECT COUNT(*) FROM templates WHERE id=?`, *req.TemplateID).Scan(&n)
 		if n == 0 {
-			writeErr(w, 400, "模板不存在")
+			writeErr(w, 400, "Template not found")
 			return
 		}
 		m.db.Exec(`UPDATE nodes SET template_id=? WHERE id=?`, *req.TemplateID, id)
@@ -351,7 +351,7 @@ func (m *Master) apiCreateInbound(w http.ResponseWriter, r *http.Request) {
 	var exists int
 	m.db.QueryRow(`SELECT COUNT(*) FROM nodes WHERE id=?`, req.NodeID).Scan(&exists)
 	if exists == 0 {
-		writeErr(w, 400, "节点不存在")
+		writeErr(w, 400, "Node not found")
 		return
 	}
 	if err := m.checkPortFree(req.NodeID, port, 0); err != nil {
@@ -361,7 +361,7 @@ func (m *Master) apiCreateInbound(w http.ResponseWriter, r *http.Request) {
 	res, err := m.db.Exec(`INSERT INTO inbounds(node_id,tag,type,port,options_json,client_json,enabled,remark,sort,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
 		req.NodeID, req.Tag, req.Type, port, string(opts), string(req.Client), req.Enabled == nil || *req.Enabled, req.Remark, ptrOr(req.Sort, 0), now())
 	if err != nil {
-		writeErr(w, 400, "同一节点上的入站标签必须唯一")
+		writeErr(w, 400, "Inbound tags must be unique on a node")
 		return
 	}
 	id, _ := res.LastInsertId()
@@ -389,7 +389,7 @@ func (m *Master) checkPortFree(nodeID string, port, exceptID int64) error {
 	var tag string
 	err := m.db.QueryRow(`SELECT tag FROM inbounds WHERE node_id=? AND port=? AND id<>?`, nodeID, port, exceptID).Scan(&tag)
 	if err == nil {
-		return fmt.Errorf("端口 %d 已被入站 %s 使用", port, tag)
+		return fmt.Errorf("Port %d is already used by inbound %s", port, tag)
 	}
 	return nil
 }
@@ -443,7 +443,7 @@ func (m *Master) apiUpdateInbound(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := m.db.Exec(`UPDATE inbounds SET tag=?, type=?, port=?, options_json=?, client_json=?, enabled=?, remark=? WHERE id=?`,
 		cur.Tag, cur.Type, port, string(opts), string(cur.Client), *cur.Enabled, cur.Remark, id); err != nil {
-		writeErr(w, 400, "同一节点上的入站标签必须唯一")
+		writeErr(w, 400, "Inbound tags must be unique on a node")
 		return
 	}
 	if req.Sort != nil {
@@ -653,11 +653,11 @@ type userReq struct {
 
 func (req *userReq) check() error {
 	if req.ResetStrategy != nil && !validReset(*req.ResetStrategy) {
-		return fmt.Errorf("重置周期只能是 none/day/week/month/month_rolling")
+		return fmt.Errorf("Reset period must be none/day/week/month/month_rolling")
 	}
 	for _, p := range []*int64{req.TrafficLimit, req.ExpireAt, req.DeviceLimit, req.SpeedUp, req.SpeedDown} {
 		if p != nil && *p < 0 {
-			return fmt.Errorf("数值不能为负")
+			return fmt.Errorf("Values cannot be negative")
 		}
 	}
 	return nil
@@ -668,7 +668,7 @@ var userRe = regexp.MustCompile(`^[\p{L}\p{N}._@-]{1,64}$`)
 func (m *Master) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req userReq
 	if err := readJSON(r, &req); err != nil || req.Username == nil || !userRe.MatchString(*req.Username) {
-		writeErr(w, 400, "用户名只能包含字母、数字、. _ @ -，最长 64 位")
+		writeErr(w, 400, "Usernames may contain letters, digits and . _ @ - (up to 64 characters)")
 		return
 	}
 	if err := req.check(); err != nil {
@@ -693,7 +693,7 @@ func (m *Master) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		device_limit, speed_up, speed_down) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, *req.Username, randHex(12), uuid.NewString(), randHex(12), limit, exp,
 		nz(strategy, "none"), note, now(), now(), ptrOr(req.DeviceLimit, 0), ptrOr(req.SpeedUp, 0), ptrOr(req.SpeedDown, 0))
 	if err != nil {
-		writeErr(w, 400, "用户名已存在")
+		writeErr(w, 400, "Username already exists")
 		return
 	}
 	id, _ := res.LastInsertId()
@@ -729,7 +729,7 @@ func (m *Master) apiUpdateUser(w http.ResponseWriter, r *http.Request) {
 	var exists int
 	m.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id=?`, id).Scan(&exists)
 	if exists == 0 {
-		writeErr(w, 404, "用户不存在")
+		writeErr(w, 404, "User not found")
 		return
 	}
 	set := func(col string, v any) { m.db.Exec(`UPDATE users SET `+col+`=? WHERE id=?`, v, id) }
@@ -758,7 +758,7 @@ func (m *Master) apiUpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := m.db.Exec(`UPDATE users SET username=? WHERE id=?`, *req.Username, id); err != nil {
-			writeErr(w, 400, "用户名已存在")
+			writeErr(w, 400, "Username already exists")
 			return
 		}
 	}

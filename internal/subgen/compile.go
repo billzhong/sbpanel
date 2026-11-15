@@ -37,16 +37,16 @@ func Supported(client string, e Endpoint) (bool, string) {
 		return true, ""
 	}
 	if !c.Protocols[e.Type] {
-		return false, client + " 不支持 " + e.Type
+		return false, fmt.Sprintf("%s doesn't support %s", client, e.Type)
 	}
 	if e.Security == "reality" && !c.Reality {
-		return false, client + " 不支持 REALITY"
+		return false, fmt.Sprintf("%s doesn't support REALITY", client)
 	}
 	if !c.Transports[e.Network] {
-		return false, client + " 不支持传输 " + e.Network
+		return false, fmt.Sprintf("%s doesn't support transport %s", client, e.Network)
 	}
 	if e.Type == "shadowsocks" && c.SSMethods != nil && !c.SSMethods[e.SSMethod] {
-		return false, client + " 不支持加密 " + e.SSMethod
+		return false, fmt.Sprintf("%s doesn't support cipher %s", client, e.SSMethod)
 	}
 	return true, ""
 }
@@ -97,75 +97,75 @@ func Validate(p *Profile) error {
 		}
 	}
 	if total > MaxInlineValues {
-		return fmt.Errorf("内联规则共 %d 条，超过上限 %d，请改用远程规则集", total, MaxInlineValues)
+		return fmt.Errorf("%d inline rules exceed the limit of %d; use remote rule sets instead", total, MaxInlineValues)
 	}
 	for c, ct := range p.Clients {
 		if len(ct.Base) > MaxTemplate {
-			return fmt.Errorf("%s 模板超过 64 KB", c)
+			return fmt.Errorf("The %s template exceeds 64 KB", c)
 		}
 	}
 	if len(p.Groups) == 0 {
-		return fmt.Errorf("至少需要一个策略组")
+		return fmt.Errorf("At least one proxy group is required")
 	}
 	sets := map[string]bool{}
 	for _, rs := range p.RuleSets {
 		if rs.ID == "" || sets[rs.ID] {
-			return fmt.Errorf("规则集 id 为空或重复: %q", rs.ID)
+			return fmt.Errorf("Rule set id is empty or duplicated: %q", rs.ID)
 		}
 		sets[rs.ID] = true
 		if rs.Remote == nil && len(rs.Inline) == 0 {
-			return fmt.Errorf("规则集 %s 为空", rs.ID)
+			return fmt.Errorf("Rule set %s is empty", rs.ID)
 		}
 		if rs.Remote != nil {
 			for k, u := range rs.Remote.URLs {
 				if !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
-					return fmt.Errorf("规则集 %s 的 %s 地址只能是 http(s)", rs.ID, k)
+					return fmt.Errorf("Rule set %s: the %s URL must be http(s)", rs.ID, k)
 				}
 			}
 			if rs.Remote.Catalog != "" {
 				if _, ok := Catalog[rs.Remote.Catalog]; !ok {
-					return fmt.Errorf("规则集 %s: 未知分类 %s", rs.ID, rs.Remote.Catalog)
+					return fmt.Errorf("Rule set %s: unknown category %s", rs.ID, rs.Remote.Catalog)
 				}
 			}
 		}
 		for _, m := range rs.Inline {
 			if !matcherTypes[m.Type] {
-				return fmt.Errorf("规则集 %s: 未知匹配类型 %s", rs.ID, m.Type)
+				return fmt.Errorf("Rule set %s: unknown match type %s", rs.ID, m.Type)
 			}
 			for _, v := range m.Values {
 				if strings.ContainsAny(v, ",\n\r\"") {
-					return fmt.Errorf("规则集 %s: 值含非法字符: %q", rs.ID, v)
+					return fmt.Errorf("Rule set %s: value contains invalid characters: %q", rs.ID, v)
 				}
 				if m.Type == "domain_regex" {
 					if _, err := regexp.Compile(v); err != nil {
-						return fmt.Errorf("规则集 %s: 正则错误 %v", rs.ID, err)
+						return fmt.Errorf("Rule set %s: bad regex %v", rs.ID, err)
 					}
 				}
 			}
 		}
 	}
 	if p.Mirror != "" && !((strings.HasPrefix(p.Mirror, "https://") || strings.HasPrefix(p.Mirror, "http://")) && strings.HasSuffix(p.Mirror, "/")) {
-		return fmt.Errorf("镜像前缀必须是以 / 结尾的 http(s) 地址")
+		return fmt.Errorf("The mirror prefix must be an http(s) URL ending in /")
 	}
 	groups := map[string]Group{}
 	names := map[string]bool{"DIRECT": true, "REJECT": true}
 	for _, g := range p.Groups {
 		if g.ID == "" || groups[g.ID].ID != "" || names[g.Name] || g.Name == "" {
-			return fmt.Errorf("分组 id/名称为空或重复: %q", g.ID)
+			return fmt.Errorf("Group id/name is empty or duplicated: %q", g.ID)
 		}
 		if strings.ContainsAny(g.Name, ",=\n\"") {
-			return fmt.Errorf("分组名 %q 含非法字符", g.Name)
+			return fmt.Errorf("Group name %q contains invalid characters", g.Name)
 		}
 		switch g.Type {
 		case "select", "url-test", "fallback", "load-balance":
 		default:
-			return fmt.Errorf("分组 %s: 未知类型 %s", g.ID, g.Type)
+			return fmt.Errorf("Group %s: unknown type %s", g.ID, g.Type)
 		}
 		groups[g.ID], names[g.Name] = g, true
 		for _, m := range g.Members {
 			for _, re := range []string{m.Include, m.Exclude} {
 				if _, err := regexp.Compile(re); err != nil {
-					return fmt.Errorf("分组 %s: 正则错误 %v", g.ID, err)
+					return fmt.Errorf("Group %s: bad regex %v", g.ID, err)
 				}
 			}
 		}
@@ -176,7 +176,7 @@ func Validate(p *Profile) error {
 	visit = func(id string) error {
 		switch state[id] {
 		case 1:
-			return fmt.Errorf("分组循环引用: %s", id)
+			return fmt.Errorf("Group reference cycle: %s", id)
 		case 2:
 			return nil
 		}
@@ -184,7 +184,7 @@ func Validate(p *Profile) error {
 		for _, m := range groups[id].Members {
 			if m.Kind == "group" {
 				if _, ok := groups[m.Ref]; !ok {
-					return fmt.Errorf("分组 %s 引用了不存在的分组 %s", id, m.Ref)
+					return fmt.Errorf("Group %s references missing group %s", id, m.Ref)
 				}
 				if err := visit(m.Ref); err != nil {
 					return err
@@ -202,14 +202,14 @@ func Validate(p *Profile) error {
 	target := func(t string) bool { _, ok := groups[t]; return ok || t == "DIRECT" || t == "REJECT" }
 	for _, r := range p.Rules {
 		if !sets[r.RuleSet] {
-			return fmt.Errorf("路由引用了不存在的规则集 %s", r.RuleSet)
+			return fmt.Errorf("A route references missing rule set %s", r.RuleSet)
 		}
 		if !target(r.Target) {
-			return fmt.Errorf("路由目标不存在: %s", r.Target)
+			return fmt.Errorf("Route target doesn't exist: %s", r.Target)
 		}
 	}
 	if p.Final == "REJECT" || !target(p.Final) {
-		return fmt.Errorf("兜底目标无效: %s", p.Final)
+		return fmt.Errorf("Invalid fallback target: %s", p.Final)
 	}
 	return nil
 }
@@ -230,7 +230,7 @@ func Compile(p *Profile, client string, eps []Endpoint) (*Compiled, error) {
 	seen := map[string]int{}
 	for _, e := range eps {
 		if ok, why := Supported(client, e); !ok {
-			c.warn("已跳过节点 %s：%s", e.Remark, why)
+			c.warn("Skipped node %s: %s", e.Remark, why)
 			continue
 		}
 		n := strings.NewReplacer(",", " ", "=", "-", "\n", " ", "\"", "'").Replace(strings.TrimSpace(e.Remark))
@@ -303,12 +303,12 @@ func Compile(p *Profile, client string, eps []Endpoint) (*Compiled, error) {
 		}
 		if !hasNode && g.HideIfEmpty {
 			dropped[id] = true
-			c.warn("分组 %s 没有可用节点，已隐藏", g.Name)
+			c.warn("Group %s has no usable nodes and was hidden", g.Name)
 		}
 		if len(out) == 0 {
 			out = []string{"DIRECT"} // clients reject empty groups
 			if !dropped[id] {
-				c.warn("分组 %s 没有成员，已用 DIRECT 占位", g.Name)
+				c.warn("Group %s has no members; DIRECT was used as a placeholder", g.Name)
 			}
 		}
 		// url-test/fallback/load-balance can't contain REJECT meaningfully; keep as-is but avoid groups-only DIRECT confusion.
@@ -333,7 +333,7 @@ func Compile(p *Profile, client string, eps []Endpoint) (*Compiled, error) {
 	c.Final = name(p.Final)
 	if c.Final == "" {
 		c.Final = "DIRECT"
-		c.warn("兜底分组被隐藏，改为 DIRECT")
+		c.warn("The fallback group was hidden; using DIRECT")
 	}
 	// 3. rules
 	sets := map[string]RuleSet{}
@@ -348,7 +348,7 @@ func Compile(p *Profile, client string, eps []Endpoint) (*Compiled, error) {
 		t := name(r.Target)
 		if t == "" {
 			t = c.Final
-			c.warn("规则 %s 的目标分组被隐藏，改走兜底 %s", r.RuleSet, c.Final)
+			c.warn("The target group of rule %s was hidden; using the fallback %s", r.RuleSet, c.Final)
 		}
 		c.Rules = append(c.Rules, CRule{Set: sets[r.RuleSet], Target: t, ResolveIP: r.ResolveIP})
 	}

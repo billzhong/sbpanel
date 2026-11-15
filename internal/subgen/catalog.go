@@ -24,10 +24,10 @@ var Catalog = map[string]CatalogItem{}
 
 func init() {
 	for _, c := range []CatalogItem{
-		{"private", "局域网/私有地址", "private", "private", "private", []string{"Lan"}, ""},
-		{"ads", "广告拦截", "ads", "category-ads-all", "", []string{"AdvertisingLite"}, ""},
-		{"cn", "中国大陆", "cn", "cn", "cn", []string{"China"}, "CN"},
-		{"global", "非中国大陆", "global", "geolocation-!cn", "", []string{"Global"}, ""},
+		{"private", "LAN / private addresses", "private", "private", "private", []string{"Lan"}, ""},
+		{"ads", "Ad blocking", "ads", "category-ads-all", "", []string{"AdvertisingLite"}, ""},
+		{"cn", "Mainland China", "cn", "cn", "cn", []string{"China"}, "CN"},
+		{"global", "Outside mainland China", "global", "geolocation-!cn", "", []string{"Global"}, ""},
 		{"netflix", "Netflix", "streaming", "netflix", "netflix", []string{"Netflix"}, ""},
 		{"disney", "Disney+", "streaming", "disney", "", []string{"Disney"}, ""},
 		{"youtube", "YouTube", "streaming", "youtube", "", []string{"YouTube"}, ""},
@@ -35,8 +35,8 @@ func init() {
 		{"tiktok", "TikTok", "streaming", "tiktok", "", []string{"TikTok"}, ""},
 		{"hbo", "HBO Max", "streaming", "hbo", "", []string{"HBO"}, ""},
 		{"primevideo", "Prime Video", "streaming", "primevideo", "", []string{"PrimeVideo"}, ""},
-		{"bahamut", "巴哈姆特", "streaming", "bahamut", "", []string{"Bahamut"}, ""},
-		{"ai", "AI 服务（OpenAI/Claude/Gemini/Copilot…）", "ai", "category-ai-!cn", "", []string{"OpenAI", "Claude", "Gemini", "Copilot"}, ""},
+		{"bahamut", "Bahamut", "streaming", "bahamut", "", []string{"Bahamut"}, ""},
+		{"ai", "AI services (OpenAI/Claude/Gemini/Copilot…)", "ai", "category-ai-!cn", "", []string{"OpenAI", "Claude", "Gemini", "Copilot"}, ""},
 		{"openai", "OpenAI", "ai", "openai", "", []string{"OpenAI"}, ""},
 		{"anthropic", "Claude / Anthropic", "ai", "anthropic", "", []string{"Claude"}, ""},
 		{"gemini", "Google Gemini", "ai", "google-gemini", "", []string{"Gemini"}, ""},
@@ -45,7 +45,7 @@ func init() {
 		{"microsoft", "Microsoft", "service", "microsoft", "", []string{"Microsoft"}, ""},
 		{"google", "Google", "service", "google", "", []string{"Google"}, ""},
 		{"github", "GitHub", "service", "github", "", []string{"GitHub"}, ""},
-		{"games", "游戏平台", "games", "category-games", "", []string{"Game"}, ""},
+		{"games", "Game platforms", "games", "category-games", "", []string{"Game"}, ""},
 	} {
 		Catalog[c.Key] = c
 	}

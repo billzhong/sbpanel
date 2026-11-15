@@ -101,13 +101,13 @@ func (m *Master) apiChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.New) < 8 {
-		writeErr(w, 400, "新密码至少 8 位")
+		writeErr(w, 400, "The new password needs at least 8 characters")
 		return
 	}
 	var hash string
 	if err := m.db.QueryRow(`SELECT pass_hash FROM admins WHERE username=?`, actor(r)).Scan(&hash); err != nil ||
 		bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Old)) != nil {
-		writeErr(w, 400, "原密码不正确")
+		writeErr(w, 400, "The current password is incorrect")
 		return
 	}
 	h, _ := bcrypt.GenerateFromPassword([]byte(req.New), bcrypt.DefaultCost)
@@ -129,7 +129,7 @@ func (m *Master) apiTOTPEnable(w http.ResponseWriter, r *http.Request) {
 	readJSON(r, &req)
 	sec, ok := getSetting(m.db, "totp_pending:"+actor(r))
 	if !ok || !totpValid(sec, req.Code, time.Now()) {
-		writeErr(w, 400, "验证码不正确")
+		writeErr(w, 400, "Incorrect verification code")
 		return
 	}
 	m.db.Exec(`UPDATE admins SET totp_secret=? WHERE username=?`, sec, actor(r))
@@ -144,7 +144,7 @@ func (m *Master) apiTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	var hash string
 	if err := m.db.QueryRow(`SELECT pass_hash FROM admins WHERE username=?`, actor(r)).Scan(&hash); err != nil ||
 		bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
-		writeErr(w, 400, "密码不正确")
+		writeErr(w, 400, "Incorrect password")
 		return
 	}
 	m.db.Exec(`UPDATE admins SET totp_secret='' WHERE username=?`, actor(r))

@@ -8,19 +8,23 @@ import {
 } from '../../lib/appearance'
 import { Badge, Button, Callout, Card, Segmented, cx } from '../../ui/kit'
 import { IconCheck } from '../../ui/icons'
+import { tr, useT } from '../../i18n'
+import { A } from '../../i18n/appearance'
 
-const MODES: { id: Mode; label: string }[] = [{ id: 'system', label: '跟随系统' }, { id: 'light', label: '浅色' }, { id: 'dark', label: '深色' }]
-const RADII: { id: Radius; label: string }[] = [{ id: 'default', label: '标准' }, { id: 'sharp', label: '锐利' }, { id: 'round', label: '圆润' }]
-const DENSITIES: { id: Density; label: string }[] = [{ id: 'default', label: '舒适' }, { id: 'compact', label: '紧凑' }]
+const MODES = (): { id: Mode; label: string }[] => { const t = tr(A); return [{ id: 'system', label: t.m_system }, { id: 'light', label: t.m_light }, { id: 'dark', label: t.m_dark }] }
+const RADII = (): { id: Radius; label: string }[] => { const t = tr(A); return [{ id: 'default', label: t.r_default }, { id: 'sharp', label: t.r_sharp }, { id: 'round', label: t.r_round }] }
+const DENSITIES = (): { id: Density; label: string }[] => { const t = tr(A); return [{ id: 'default', label: t.d_default }, { id: 'compact', label: t.d_compact }] }
 
 function describe(a: Appearance) {
   const p = PALETTES.find((x) => x.id === (a.palette ?? 'neutral'))?.label
-  const m = MODES.find((x) => x.id === (a.mode ?? 'system'))?.label
-  return [p, m, a.accent ? '自定义强调色' : null, a.radius && a.radius !== 'default' ? RADII.find((x) => x.id === a.radius)?.label + '圆角' : null,
-    a.density === 'compact' ? '紧凑' : null].filter(Boolean).join(' · ')
+  const t = tr(A)
+  const m = MODES().find((x) => x.id === (a.mode ?? 'system'))?.label
+  return [p, m, a.accent ? t.customAccent : null, a.radius && a.radius !== 'default' ? t.radiusX(RADII().find((x) => x.id === a.radius)?.label ?? '') : null,
+    a.density === 'compact' ? t.d_compact : null].filter(Boolean).join(' · ')
 }
 
 export function AppearanceSettings() {
+  const t = useT(A)
   const { appearance: a, dark, server, hasLocal } = useAppearance()
   const palette = a.palette ?? 'neutral'
   const [custom, setCustom] = useState(a.accent?.source ?? '#1f6a88')
@@ -33,7 +37,7 @@ export function AppearanceSettings() {
   }
   const saveDefault = useAction({
     fn: () => api('/settings', { method: 'PUT', body: { ui_appearance: JSON.stringify(a) } }),
-    success: '已设为全站默认', invalidate: [['settings']],
+    success: t.savedDefault, invalidate: [['settings']],
     onSuccess: () => setServerDefault(a),
   })
   const resolved = a.accent ? (dark ? a.accent.dark : a.accent.light) : null
@@ -42,10 +46,10 @@ export function AppearanceSettings() {
     <div className="grid gap-4 xl:grid-cols-2">
       <a href="#/subscriptions?tab=subpage" className="group flex items-center gap-3 rounded-[12px] border border-dashed bg-surface px-4 py-3 text-[13px] text-subtle outline-none transition-colors duration-(--dur-1) hover:border-accent hover:text-text focus-visible:ring-2 focus-visible:ring-accent xl:col-span-2">
         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px] bg-overlay text-accent">→</span>
-        <span>订阅页的外观与主题在 <b className="font-medium text-accent group-hover:underline">订阅 → 订阅页</b>；这里只影响管理面板。</span>
+        <span>{t.subpageHint()}</span>
       </a>
-      <Card className="xl:col-span-2" title="配色">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="radiogroup" aria-label="配色">
+      <Card className="xl:col-span-2" title={t.palette}>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="radiogroup" aria-label={t.palette}>
           {PALETTES.map((p) => {
             const on = p.id === palette
             return (
@@ -72,20 +76,20 @@ export function AppearanceSettings() {
         </div>
       </Card>
 
-      <Card title="明暗与形状">
+      <Card title={t.modeShape}>
         <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-[13px] text-subtle">明暗</span>
-            <Segmented label="明暗" value={a.mode ?? 'system'} onChange={(m) => setLocal({ mode: m })} options={MODES} /></div>
-          <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-[13px] text-subtle">圆角</span>
-            <Segmented label="圆角" value={a.radius ?? 'default'} onChange={(r) => setLocal({ radius: r })} options={RADII} /></div>
-          <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-[13px] text-subtle">密度</span>
-            <Segmented label="密度" value={a.density ?? 'default'} onChange={(d) => setLocal({ density: d })} options={DENSITIES} /></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-[13px] text-subtle">{t.mode}</span>
+            <Segmented label={t.mode} value={a.mode ?? 'system'} onChange={(m) => setLocal({ mode: m })} options={MODES()} /></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-[13px] text-subtle">{t.radius}</span>
+            <Segmented label={t.radius} value={a.radius ?? 'default'} onChange={(r) => setLocal({ radius: r })} options={RADII()} /></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-[13px] text-subtle">{t.density}</span>
+            <Segmented label={t.density} value={a.density ?? 'default'} onChange={(d) => setLocal({ density: d })} options={DENSITIES()} /></div>
         </div>
       </Card>
 
-      <Card title="强调色" action={a.accent && <Button size="sm" onPress={() => setAccent(null)}>使用配色自带</Button>}>
+      <Card title={t.accent} action={a.accent && <Button size="sm" onPress={() => setAccent(null)}>{t.usePaletteAccent}</Button>}>
         <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="强调色">
+          <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label={t.accent}>
             {ACCENT_PRESETS.map((c) => (
               <button key={c} type="button" role="radio" aria-checked={a.accent?.source === c} aria-label={c} onClick={() => { setCustom(c); setAccent(c) }}
                 className={cx('grid h-8 w-8 cursor-pointer place-items-center rounded-full outline-none transition-transform duration-(--dur-1) hover:scale-110 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
@@ -95,36 +99,36 @@ export function AppearanceSettings() {
             ))}
             <label className="ml-1 flex h-8 cursor-pointer items-center gap-2 rounded-full bg-overlay pr-3 pl-1 text-[13px] text-subtle">
               <input type="color" value={custom} onChange={(e) => { setCustom(e.target.value); setAccent(e.target.value) }}
-                className="h-6 w-6 cursor-pointer rounded-full border-0 bg-transparent p-0" aria-label="自定义强调色" />自定义
+                className="h-6 w-6 cursor-pointer rounded-full border-0 bg-transparent p-0" aria-label={t.customAccent} />{t.custom}
             </label>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <span className="inline-flex h-8 items-center rounded-full bg-accent px-4 text-sm font-medium text-on-accent">主要按钮</span>
-            <span className="text-sm font-medium text-accent">链接文字</span>
-            <Badge tone="accent">标签</Badge>
+            <span className="inline-flex h-8 items-center rounded-full bg-accent px-4 text-sm font-medium text-on-accent">{t.primaryBtn}</span>
+            <span className="text-sm font-medium text-accent">{t.linkText}</span>
+            <Badge tone="accent">{t.tag}</Badge>
           </div>
           <p className="text-xs text-muted">
             {resolved && a.accent?.source && resolved.accent !== a.accent.source.toLowerCase()
-              ? <>为保证可读性，{dark ? '深色' : '浅色'}模式下自动调整为 <span className="font-mono">{resolved.accent}</span>（按钮文字对比度 {contrast(resolved.accent, resolved.onAccent).toFixed(1)}:1）。</>
-              : '所选颜色会自动调整亮度，保证在所有背景上作为文字和按钮都满足 WCAG AA（≥ 4.5:1）。'}
+              ? t.adjusted(dark, resolved.accent, contrast(resolved.accent, resolved.onAccent).toFixed(1))
+              : t.autoAdjust}
           </p>
         </div>
       </Card>
 
-      <Card className="xl:col-span-2" title="保存位置">
+      <Card className="xl:col-span-2" title={t.whereSaved}>
         <div className="flex flex-col gap-3">
           <p className="text-[13px] text-subtle">
-            以上选择立即生效，并<b className="font-medium text-text">只保存在当前浏览器</b>。设为全站默认后，所有没有自己选择的管理员和新设备都会使用它。
+            {t.savedHint()}
           </p>
-          <dl className="grid grid-cols-[96px_1fr] gap-y-1.5 text-[13px]">
-            <dt className="text-subtle">当前浏览器</dt><dd>{describe(a)}{!hasLocal && <span className="ml-2 text-muted">（跟随全站默认）</span>}</dd>
-            <dt className="text-subtle">全站默认</dt><dd>{s.data?.ui_appearance ? describe(server) : '石墨 · 跟随系统（内置）'}</dd>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[13px]">
+            <dt className="text-subtle">{t.thisBrowser}</dt><dd>{describe(a)}{!hasLocal && <span className="ml-2 text-muted">{t.followDefault}</span>}</dd>
+            <dt className="text-subtle">{t.siteDefault}</dt><dd>{s.data?.ui_appearance ? describe(server) : t.builtinDefault}</dd>
           </dl>
           <div className="flex flex-wrap gap-2">
-            <Button variant="primary" isPending={saveDefault.isPending} onPress={() => saveDefault.mutate()}>设为全站默认</Button>
-            <Button isDisabled={!hasLocal} onPress={() => clearLocal()}>恢复为全站默认</Button>
+            <Button variant="primary" isPending={saveDefault.isPending} onPress={() => saveDefault.mutate()}>{t.setDefault}</Button>
+            <Button isDisabled={!hasLocal} onPress={() => clearLocal()}>{t.revert}</Button>
           </div>
-          {palette === 'rosepine' && <Callout>Rosé Pine 的辅助文字已在官方色值基础上提亮，以满足对比度要求。</Callout>}
+          {palette === 'rosepine' && <Callout>{t.rosepineNote}</Callout>}
         </div>
       </Card>
     </div>

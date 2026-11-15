@@ -1,14 +1,14 @@
 // Types mirroring internal/subgen (the generic routing model) and /api/routing/*.
+import { tr } from '../i18n'
+import { R } from '../i18n/routing'
 
 export type ClientId = 'mihomo' | 'singbox' | 'surge'
 export const CLIENTS: ClientId[] = ['mihomo', 'singbox', 'surge']
 export const CLIENT_LABEL: Record<ClientId, string> = { mihomo: 'Clash / mihomo', singbox: 'sing-box', surge: 'Surge' }
 
 export type MatcherType = 'domain' | 'domain_suffix' | 'domain_keyword' | 'domain_regex' | 'ip_cidr' | 'geosite' | 'geoip' | 'process_name' | 'port' | 'network'
-export const MATCHER_LABEL: Record<MatcherType, string> = {
-  domain: '域名（完整）', domain_suffix: '域名后缀', domain_keyword: '域名关键字', domain_regex: '域名正则', ip_cidr: 'IP 段',
-  geosite: 'GeoSite 分类', geoip: 'GeoIP 国家', process_name: '进程名', port: '端口', network: '网络（tcp/udp）',
-}
+export const MATCHER_TYPES: MatcherType[] = ['domain', 'domain_suffix', 'domain_keyword', 'domain_regex', 'ip_cidr', 'geosite', 'geoip', 'process_name', 'port', 'network']
+export const matcherLabel = (k: MatcherType): string => tr(R)[`m_${k}`]
 
 export type Matcher = { type: MatcherType; values: string[]; no_resolve?: boolean }
 export type Source = { catalog?: string; behavior?: 'domain' | 'ipcidr' | 'classical'; urls?: Partial<Record<ClientId, string>>; interval?: number }
@@ -41,9 +41,9 @@ export type Preview = { body: string; warnings: string[]; error: string; publish
 export type NodeName = { remark: string; node: string; type: string; surge: boolean }
 export type HistoryItem = { id: number; ts: number; admin: string; json: Profile }
 
-export const KIND_LABEL: Record<string, string> = {
-  private: '局域网', cn: '中国大陆', global: '海外', ads: '广告', ai: 'AI 服务', streaming: '流媒体', service: '常用服务', games: '游戏',
-}
+const KINDS = ['private', 'cn', 'global', 'ads', 'ai', 'streaming', 'service', 'games'] as const
+/** Label of a catalog category, or undefined for kinds the UI doesn't know. */
+export const kindLabel = (k: string): string | undefined => (KINDS as readonly string[]).includes(k) ? tr(R)[`k_${k as typeof KINDS[number]}`] : undefined
 
 /** Go RE2 "(?i)" prefix → JS flag; returns null on invalid patterns. */
 export function goRegex(re: string): RegExp | null {
@@ -87,13 +87,14 @@ export function newId(prefix: string, taken: string[]) {
 }
 
 export function ruleSetSummary(rs: RuleSet | undefined, cat: CatalogItem[]): string {
-  if (!rs) return '（规则集不存在）'
+  const t = tr(R)
+  if (!rs) return t.rsMissing
   const parts: string[] = []
   if (rs.remote?.catalog) {
     const c = cat.find((x) => x.key === rs.remote!.catalog)
     parts.push(c ? [c.geosite && `geosite:${c.geosite}`, c.geoip && `geoip:${c.geoip}`].filter(Boolean).join(' + ') : rs.remote.catalog)
-  } else if (rs.remote) parts.push('远程 ' + Object.keys(rs.remote.urls ?? {}).join(' / '))
+  } else if (rs.remote) parts.push(t.rsRemote(Object.keys(rs.remote.urls ?? {}).join(' / ')))
   const n = (rs.inline ?? []).reduce((a, m) => a + m.values.length, 0)
-  if (n) parts.push(`内联 ${n} 条`)
-  return parts.join(' · ') || '空'
+  if (n) parts.push(t.rsInline(n))
+  return parts.join(' · ') || t.rsEmpty
 }

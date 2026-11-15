@@ -3,6 +3,8 @@ import { api } from '../lib/api'
 import { ago } from '../lib/fmt'
 import { Badge, Button, Callout, Drawer, Empty, Skeleton, Spinner, cx, useToast } from './kit'
 import { IconCheck, IconRefresh, IconX } from './icons'
+import { tr } from '../i18n'
+import { P } from '../i18n/probe'
 
 export const IconProbe = (p: { size?: number }) => <svg width={p.size ?? 16} height={p.size ?? 16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg>
 
@@ -42,14 +44,14 @@ export function healthOf(rs: ProbeResult[]): Health {
   return ok === rs.length ? 'ok' : ok === 0 ? 'bad' : 'partial'
 }
 
-const healthText: Record<Health, string> = { ok: '连通正常', bad: '不可达', partial: '部分地址不可达', unknown: '还没测试过' }
+const healthText = (h: Health) => tr(P)[h]
 
 /** A compact health dot; a click opens the details. */
 export function HealthDot({ results, onPress, running }: { results: ProbeResult[]; onPress?: () => void; running?: boolean }) {
   const h = healthOf(results)
   const latest = results.reduce((m, r) => Math.max(m, r.ts), 0)
   const ms = results.filter((r) => r.ok).map((r) => r.total_ms)
-  const title = h === 'unknown' ? healthText[h] : `${healthText[h]}${ms.length ? ` · ${Math.min(...ms)} ms` : ''} · ${ago(latest)}`
+  const title = h === 'unknown' ? healthText(h) : `${healthText(h)}${ms.length ? ` · ${Math.min(...ms)} ms` : ''} · ${ago(latest)}`
   return (
     <button type="button" onClick={onPress} aria-label={title} title={title}
       className="inline-grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-full outline-none transition-colors duration-(--dur-1) hover:bg-overlay focus-visible:ring-2 focus-visible:ring-accent">
@@ -64,9 +66,10 @@ export function HealthDot({ results, onPress, running }: { results: ProbeResult[
 /** The stages a full probe of this endpoint goes through, in order. */
 function expected(r: ProbeResult): { name: string; label: string }[] {
   const udp = r.type === 'hysteria2' || r.type === 'tuic'
-  const out = [{ name: 'dns', label: 'DNS' }, udp ? { name: 'quic', label: 'QUIC 握手' } : { name: 'tcp', label: 'TCP 连接' }]
-  if (!udp && r.security === 'tls') out.push({ name: 'tls', label: 'TLS 握手' })
-  out.push({ name: 'handshake', label: r.security === 'reality' ? 'REALITY 握手' : '握手 + 隧道' }, { name: 'proxy', label: '代理请求' })
+  const t = tr(P)
+  const out = [{ name: 'dns', label: 'DNS' }, udp ? { name: 'quic', label: t.quic } : { name: 'tcp', label: t.tcp }]
+  if (!udp && r.security === 'tls') out.push({ name: 'tls', label: t.tls })
+  out.push({ name: 'handshake', label: r.security === 'reality' ? t.reality : t.handshake }, { name: 'proxy', label: t.proxy })
   return out
 }
 
@@ -77,10 +80,10 @@ function Timeline({ r }: { r: ProbeResult }) {
     const s = got.get(e.name)
     if (s) return { ...s, state: s.ok ? 'ok' : 'bad' } as const
     if (r.ok) return null // e.g. the handshake time was folded into the request
-    return { name: e.name, label: e.label, ms: 0, detail: i === failedAt ? undefined : '未执行', state: i === failedAt ? 'bad' : 'skip' } as const
+    return { name: e.name, label: e.label, ms: 0, detail: i === failedAt ? undefined : tr(P).notRun, state: i === failedAt ? 'bad' : 'skip' } as const
   }).filter((x) => x !== null)
   return (
-    <ol className="relative flex flex-col gap-0" aria-label="测试阶段">
+    <ol className="relative flex flex-col gap-0" aria-label={tr(P).stages}>
       {rows.map((s, i) => (
         <li key={s.name} className="relative flex gap-3 pb-3 last:pb-0">
           {i < rows.length - 1 && <span aria-hidden className={cx('absolute top-6 left-[11px] h-[calc(100%-18px)] w-px', s.state === 'ok' ? 'bg-good/40' : 'bg-hl-med')} />}
@@ -105,7 +108,7 @@ export function ProbeCard({ r }: { r: ProbeResult }) {
   return (
     <section className="animate-content-in rounded-[14px] border bg-base p-4">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Badge tone={r.ok ? 'good' : 'bad'} dot>{r.ok ? '可用' : '失败'}</Badge>
+        <Badge tone={r.ok ? 'good' : 'bad'} dot>{r.ok ? tr(P).pass : tr(P).fail}</Badge>
         <span className="min-w-0 flex-1 truncate text-sm font-medium" title={r.remark}>{r.remark || r.tag}</span>
         <span className="font-mono text-xs text-subtle tabular">{r.total_ms} ms</span>
       </div>
@@ -118,7 +121,7 @@ export function ProbeCard({ r }: { r: ProbeResult }) {
       {!r.ok && r.error && <div className="mt-3"><Callout tone="bad">{r.error}</Callout></div>}
       {!r.ok && r.raw && (
         <details className="mt-2 text-xs text-muted">
-          <summary className="cursor-pointer outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-accent">技术细节</summary>
+          <summary className="cursor-pointer outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-accent">{tr(P).tech}</summary>
           <pre className="mt-1 font-mono whitespace-pre-wrap [overflow-wrap:anywhere]">{r.raw}</pre>
         </details>
       )}
@@ -132,17 +135,16 @@ export function ProbeDrawer({ isOpen, onClose, title, results, running, onRetry 
 }) {
   const ok = results.filter((r) => r.ok).length
   return (
-    <Drawer isOpen={isOpen} onOpenChange={(v) => !v && onClose()} title={title} label="连通性测试结果"
-      actions={<Button size="sm" isPending={running} onPress={onRetry}>{!running && <IconRefresh size={14} />}重新测试</Button>}>
+    <Drawer isOpen={isOpen} onOpenChange={(v) => !v && onClose()} title={title} label={tr(P).drawerLabel}
+      actions={<Button size="sm" isPending={running} onPress={onRetry}>{!running && <IconRefresh size={14} />}{tr(P).retest}</Button>}>
       <p className="mb-4 text-[13px] text-subtle">
-        master 以隐藏的探测用户，按订阅下发的地址逐个连接：DNS → TCP / QUIC → TLS / REALITY → 经入站发起真实的 HTTP 请求。
-        探测流量不计入用户统计。
+        {tr(P).intro}
       </p>
       {running && results.length === 0 && <div className="flex flex-col gap-3"><Skeleton className="h-40" /><Skeleton className="h-40" /></div>}
-      {!running && results.length === 0 && <Empty title="还没有结果" hint="点「重新测试」开始" />}
+      {!running && results.length === 0 && <Empty title={tr(P).noResults} hint={tr(P).noResultsHint} />}
       {results.length > 0 && (
         <>
-          <div className="mb-3 text-[13px] text-subtle">{ok} / {results.length} 个地址可用{running && ' · 正在重新测试…'}</div>
+          <div className="mb-3 text-[13px] text-subtle">{tr(P).okOf(ok, results.length)}{running && tr(P).retesting}</div>
           <div className={cx('flex flex-col gap-3 transition-opacity duration-150', running && 'opacity-60')}>
             {results.map((r) => <ProbeCard key={r.inbound_id + r.endpoint} r={r} />)}
           </div>

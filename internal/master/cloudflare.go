@@ -76,11 +76,11 @@ func (e *cfAPIError) Error() string {
 	msg := strings.Join(parts, "; ")
 	switch {
 	case e.Status == 401 || e.Status == 403 && len(e.Errs) > 0 && e.Errs[0].Code == 1000:
-		return "Cloudflare 拒绝了令牌（无效或已撤销）：" + msg
+		return "Cloudflare rejected the token (invalid or revoked): " + msg
 	case e.Status == 403:
-		return "令牌权限不足（需要 Zone:Read 与 DNS:Edit）：" + msg
+		return "The token lacks permissions (needs Zone:Read and DNS:Edit): " + msg
 	case e.Status == 429:
-		return "Cloudflare 限流，请稍后重试"
+		return "Cloudflare rate limit hit, try again later"
 	}
 	if msg == "" {
 		msg = fmt.Sprintf("HTTP %d", e.Status)
@@ -104,7 +104,7 @@ func (c *cfClient) do(ctx context.Context, method, path string, body any) (*cfEn
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("无法连接 Cloudflare API: %s", strings.ReplaceAll(err.Error(), c.token, "***"))
+		return nil, fmt.Errorf("Can't reach the Cloudflare API: %s", strings.ReplaceAll(err.Error(), c.token, "***"))
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
@@ -126,7 +126,7 @@ func (c *cfClient) Verify(ctx context.Context) error {
 		var r struct{ Status string }
 		json.Unmarshal(env.Result, &r)
 		if r.Status != "" && r.Status != "active" {
-			return fmt.Errorf("令牌状态为 %s（不是 active）", r.Status)
+			return fmt.Errorf("Token status is %s (not active)", r.Status)
 		}
 		return nil
 	}
@@ -234,7 +234,7 @@ func (p *cfDNS) zoneID(ctx context.Context, zone string) (string, error) {
 			return z.ID, nil
 		}
 	}
-	return "", fmt.Errorf("令牌无权访问区域 %s", zone)
+	return "", fmt.Errorf("The token can't access zone %s", zone)
 }
 
 func txtQuoted(s string) string { return `"` + strings.Trim(s, `"`) + `"` }

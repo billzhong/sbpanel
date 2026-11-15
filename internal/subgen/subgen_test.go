@@ -174,17 +174,17 @@ func TestSurgeGolden(t *testing.T) {
 
 func TestValidateRejects(t *testing.T) {
 	cases := map[string]func(p *Profile){
-		"循环": func(p *Profile) {
+		"cycle": func(p *Profile) {
 			p.Groups[0].Members = append(p.Groups[0].Members, Member{Kind: "group", Ref: "final"})
 		},
 		"http(s)": func(p *Profile) {
 			p.RuleSets = append(p.RuleSets, RuleSet{ID: "x", Name: "x", Remote: &Source{URLs: map[string]string{"mihomo": "file:///etc/passwd"}}})
 		},
-		"兜底":  func(p *Profile) { p.Final = "REJECT" },
-		"正则":  func(p *Profile) { p.Groups[9].Members[0].Include = "(" },
-		"不存在": func(p *Profile) { p.Rules[0].Target = "nope" },
-		"镜像":  func(p *Profile) { p.Mirror = "javascript:alert(1)" },
-		"非法字符": func(p *Profile) {
+		"fallback":      func(p *Profile) { p.Final = "REJECT" },
+		"bad regex":     func(p *Profile) { p.Groups[9].Members[0].Include = "(" },
+		"doesn't exist": func(p *Profile) { p.Rules[0].Target = "nope" },
+		"mirror":        func(p *Profile) { p.Mirror = "javascript:alert(1)" },
+		"invalid characters": func(p *Profile) {
 			p.RuleSets[0].Inline[0].Values = append(p.RuleSets[0].Inline[0].Values, "a.com,DIRECT\nMATCH")
 		},
 	}
@@ -201,10 +201,10 @@ func TestTemplateSafety(t *testing.T) {
 	p := MinimalPreset()
 	ct := p.Clients["mihomo"]
 	for base, want := range map[string]string{
-		"a: {{opt.nope}}\n{{proxies}}\n{{proxy_groups}}\n{{rules}}": "未定义的选项",
-		"{{proxies}}\n{{proxy_groups}}":                             "缺少必需占位符 {{rules}}",
+		"a: {{opt.nope}}\n{{proxies}}\n{{proxy_groups}}\n{{rules}}": "Undefined option",
+		"{{proxies}}\n{{proxy_groups}}":                             "Missing required placeholder {{rules}}",
 		"{{proxies}}\n{{proxy_groups}}\n{{rules}}\n{{ .Env }}":      "",
-		"{{proxies}}\n{{proxy_groups}}\n{{rules}}\n{{exec}}":        "未知占位符",
+		"{{proxies}}\n{{proxy_groups}}\n{{rules}}\n{{exec}}":        "Unknown placeholder",
 	} {
 		ct.Base = base
 		p.Clients["mihomo"] = ct

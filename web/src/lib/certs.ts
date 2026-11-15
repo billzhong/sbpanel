@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from './api'
+import { getLang, tr } from '../i18n'
+import { CL } from '../i18n/certs'
 
 export type CertSource = 'acme' | 'upload' | 'node'
 export type CertStatus = 'ok' | 'expiring' | 'expired' | 'pending' | 'error' | 'renewing'
@@ -32,7 +34,9 @@ export type DNSPlan = {
 
 export type PemPreview = { sans: string[]; issuer: string; not_before: number; not_after: number; fingerprint: string; self_signed: boolean; id?: string }
 
-export const SOURCE_LABEL: Record<CertSource, string> = { acme: 'ACME 自动', upload: '上传', node: '节点文件' }
+export const SOURCE_LABEL: Record<CertSource, string> = {
+  get acme() { return tr(CL).srcAcme }, get upload() { return tr(CL).srcUpload }, get node() { return tr(CL).srcNode },
+}
 
 export const useCerts = (refetch?: number | false) => useQuery({ queryKey: ['certs'], queryFn: () => api<Cert[]>('/certs'), refetchInterval: refetch })
 export const useProviders = () => useQuery({ queryKey: ['dns-providers'], queryFn: () => api<Provider[]>('/dns/providers') })
@@ -63,14 +67,15 @@ export function expiryTone(ts: number): 'good' | 'warn' | 'bad' | 'neutral' {
 export function expiryText(ts: number): string {
   if (!ts) return '—'
   const d = daysLeft(ts)
-  if (d < 0) return `已过期 ${-d} 天`
-  if (d === 0) return '今天到期'
-  return `剩余 ${d} 天`
+  const t = tr(CL)
+  if (d < 0) return t.expiredDays(-d)
+  if (d === 0) return t.expiresToday
+  return t.daysLeft(d)
 }
 
-/** A short label for selects: "name · SANs · 剩余 N 天". */
+/** A short label for selects: "name · SANs · N days left". */
 export function certLabel(c: Cert): string {
-  const sans = c.sans.length ? c.sans.slice(0, 2).join(', ') + (c.sans.length > 2 ? ` +${c.sans.length - 2}` : '') : '未签发'
+  const sans = c.sans.length ? c.sans.slice(0, 2).join(', ') + (c.sans.length > 2 ? ` +${c.sans.length - 2}` : '') : tr(CL).notIssued
   return `${c.name} · ${sans}${c.not_after ? ' · ' + expiryText(c.not_after) : ''}`
 }
 
@@ -82,7 +87,7 @@ export function matchCert(certs: Cert[], host: string, nodeId: string): Cert | u
 }
 
 export async function downloadCert(c: Cert, part: 'chain' | 'key') {
-  const res = await fetch(part === 'key' ? `/api/certs/${c.id}/key` : `/api/certs/${c.id}/download`, { method: part === 'key' ? 'POST' : 'GET', credentials: 'same-origin' })
+  const res = await fetch(part === 'key' ? `/api/certs/${c.id}/key` : `/api/certs/${c.id}/download`, { method: part === 'key' ? 'POST' : 'GET', credentials: 'same-origin', headers: { 'X-Lang': getLang() } })
   if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? res.statusText)
   const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? `${c.id}.pem`
   const url = URL.createObjectURL(await res.blob())

@@ -44,7 +44,7 @@ func singboxSections(c *Compiled) map[string]string {
 			outs = append(outs, map[string]any{"type": "selector", "tag": g.Name, "outbounds": members, "interrupt_exist_connections": true})
 		default: // url-test; sing-box has no fallback/load-balance, url-test is closest
 			if g.Type != "url-test" {
-				c.warn("sing-box 不支持 %s，分组 %s 以 urltest 输出", g.Type, g.Name)
+				c.warn("sing-box doesn't support %s; group %s is emitted as urltest", g.Type, g.Name)
 			}
 			outs = append(outs, map[string]any{"type": "urltest", "tag": g.Name, "outbounds": members,
 				"url": or(g.TestURL, "https://www.gstatic.com/generate_204"), "interval": fmt.Sprintf("%ds", orI(g.Interval, 300)), "tolerance": orI(g.Tolerance, 50)})
@@ -81,7 +81,7 @@ func singboxSections(c *Compiled) map[string]string {
 		if r.Set.Remote != nil {
 			refs := remotesFor("singbox", r.Set, c.Mirror)
 			if len(refs) == 0 {
-				c.warn("规则集 %s 没有 sing-box 源，已跳过", r.Set.Name)
+				c.warn("Rule set %s has no sing-box source; skipped", r.Set.Name)
 			}
 			for _, ref := range refs {
 				sets = append(sets, map[string]any{"type": "remote", "tag": ref.Tag, "format": ref.Format, "url": ref.URL,

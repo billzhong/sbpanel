@@ -42,7 +42,7 @@ func (m *Master) listProviders() ([]providerOut, error) {
 func (m *Master) providerToken(id int64) (string, error) {
 	var enc string
 	if err := m.db.QueryRow(`SELECT token_enc FROM dns_providers WHERE id=?`, id).Scan(&enc); err != nil {
-		return "", errors.New("DNS 服务商不存在")
+		return "", errors.New("DNS provider not found")
 	}
 	b, err := m.box.open(enc, fmt.Sprintf("dns_token:%d", id))
 	if err != nil {
@@ -76,7 +76,7 @@ func (m *Master) providerCovers(id int64, domains []string) error {
 	zs := m.providerZones(id)
 	for _, d := range domains {
 		if _, ok := zoneFor(zs, d); !ok {
-			return fmt.Errorf("%s 不在该令牌可访问的区域里（请确认令牌包含该域名的 Zone 权限）", d)
+			return fmt.Errorf("%s is not in a zone this token can access (check that the token has Zone permissions for it)", d)
 		}
 	}
 	return nil
@@ -93,7 +93,7 @@ func (m *Master) verifyToken(ctx context.Context, token string) ([]cfZone, error
 		return nil, err
 	}
 	if len(zs) == 0 {
-		return nil, errors.New("令牌有效，但看不到任何区域：创建令牌时请把「区域资源」设为包含你的域名")
+		return nil, errors.New("The token is valid but sees no zones: set its Zone Resources to include your domain")
 	}
 	sort.Slice(zs, func(i, j int) bool { return zs[i].Name < zs[j].Name })
 	return zs, nil
@@ -103,6 +103,9 @@ func (m *Master) apiProviders(w http.ResponseWriter, r *http.Request) {
 	ps, err := m.listProviders()
 	if errf(w, err) {
 		return
+	}
+	for i := range ps {
+		ps[i].LastError = L(langOf(w), ps[i].LastError)
 	}
 	writeJSON(w, 200, ps)
 }
@@ -121,12 +124,12 @@ func (m *Master) apiCreateProvider(w http.ResponseWriter, r *http.Request) {
 		req.Kind = "cloudflare"
 	}
 	if req.Kind != "cloudflare" {
-		writeErr(w, 400, "目前只支持 Cloudflare")
+		writeErr(w, 400, "Only Cloudflare is supported for now")
 		return
 	}
 	req.Token = strings.TrimSpace(req.Token)
 	if len(req.Token) < 20 {
-		writeErr(w, 400, "请粘贴完整的 API 令牌")
+		writeErr(w, 400, "Paste the full API token")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -214,7 +217,7 @@ func (m *Master) apiDeleteProvider(w http.ResponseWriter, r *http.Request) {
 	var n int
 	m.db.QueryRow(`SELECT COUNT(*) FROM certs WHERE source='acme' AND json_extract(acme_json,'$.provider_id')=?`, id).Scan(&n)
 	if n > 0 {
-		writeErr(w, 409, fmt.Sprintf("还有 %d 张 ACME 证书依赖这个令牌续期，请先删除或改用其它来源", n))
+		writeErr(w, 409, fmt.Sprintf("%d ACME certificate(s) still renew with this token; delete them or switch their source first", n))
 		return
 	}
 	m.db.Exec(`DELETE FROM dns_providers WHERE id=?`, id)
@@ -304,7 +307,7 @@ func (m *Master) apiCreateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	ds, err := normDomains([]string{req.FQDN})
 	if err != nil || strings.HasPrefix(ds[0], "*.") {
-		writeErr(w, 400, "请输入完整的域名，例如 hk.example.com")
+		writeErr(w, 400, "Enter a full domain name, e.g. hk.example.com")
 		return
 	}
 	fqdn := ds[0]
@@ -312,7 +315,7 @@ func (m *Master) apiCreateDomain(w http.ResponseWriter, r *http.Request) {
 	if req.ProviderID > 0 {
 		z, ok := zoneFor(m.providerZones(req.ProviderID), fqdn)
 		if !ok {
-			writeErr(w, 400, fqdn+" 不在该令牌可访问的区域里")
+			writeErrf(w, 400, "%s is not in a zone this token can access", fqdn)
 			return
 		}
 		zone = z
@@ -320,7 +323,7 @@ func (m *Master) apiCreateDomain(w http.ResponseWriter, r *http.Request) {
 	res, err := m.db.Exec(`INSERT INTO domains(fqdn, provider_id, zone_id, zone, node_id, proxied, created_at) VALUES(?,?,?,?,?,?,?)`,
 		fqdn, req.ProviderID, zone.ID, zone.Name, req.NodeID, req.Proxied, now())
 	if err != nil {
-		writeErr(w, 400, "该域名已存在")
+		writeErr(w, 400, "This domain already exists")
 		return
 	}
 	id, _ := res.LastInsertId()
@@ -373,10 +376,10 @@ type domainRow struct {
 func (m *Master) domainForDNS(id int64) (domainRow, *cfClient, error) {
 	var d domainRow
 	if err := m.db.QueryRow(`SELECT id, fqdn, provider_id, zone_id FROM domains WHERE id=?`, id).Scan(&d.ID, &d.FQDN, &d.ProviderID, &d.ZoneID); err != nil {
-		return d, nil, errors.New("域名不存在")
+		return d, nil, errors.New("Domain not found")
 	}
 	if d.ProviderID == 0 || d.ZoneID == "" {
-		return d, nil, errors.New("该域名没有关联 DNS 服务商，无法管理记录")
+		return d, nil, errors.New("This domain has no DNS provider, so its records can't be managed")
 	}
 	tok, err := m.providerToken(d.ProviderID)
 	if err != nil {
@@ -418,11 +421,11 @@ func (c *dnsChange) check() error {
 	ip := net.ParseIP(c.Content)
 	switch {
 	case c.Type == "A" && (ip == nil || ip.To4() == nil):
-		return errors.New("A 记录需要 IPv4 地址")
+		return errors.New("An A record needs an IPv4 address")
 	case c.Type == "AAAA" && (ip == nil || ip.To4() != nil):
-		return errors.New("AAAA 记录需要 IPv6 地址")
+		return errors.New("An AAAA record needs an IPv6 address")
 	case c.Type != "A" && c.Type != "AAAA":
-		return errors.New("只能管理 A / AAAA 记录")
+		return errors.New("Only A / AAAA records can be managed")
 	}
 	return nil
 }
@@ -452,7 +455,7 @@ func (m *Master) planDNS(ctx context.Context, d domainRow, c *cfClient, ch dnsCh
 	var same []cfRecord
 	for _, r := range rs {
 		if r.Type == "CNAME" {
-			p.Action, p.Warning = "conflict", "该名称已有 CNAME 记录，A/AAAA 不能与它共存。请先在 Cloudflare 删除 CNAME。"
+			p.Action, p.Warning = "conflict", "This name has a CNAME record, which can't coexist with A/AAAA. Delete the CNAME in Cloudflare first."
 			return p, nil
 		}
 		if r.Type == ch.Type {
@@ -471,13 +474,18 @@ func (m *Master) planDNS(ctx context.Context, d domainRow, c *cfClient, ch dnsCh
 			p.Action = "update"
 		}
 	default:
-		p.Action, p.Warning = "conflict", fmt.Sprintf("该名称已有 %d 条 %s 记录（可能是负载均衡），面板不会改动它们。请在 Cloudflare 手动处理。", len(same), ch.Type)
+		p.Action, p.Warning = "conflict", fmt.Sprintf("This name already has %d %s records (load balancing?). The panel won't touch them; handle them in Cloudflare.", len(same), ch.Type)
 	}
 	if ch.Proxied {
-		p.Warning = strings.TrimSpace(p.Warning + " 开启橙色云朵后流量经过 Cloudflare：只有 WS / gRPC / HTTPUpgrade + TLS 入站能用；REALITY、Hysteria2、TUIC、裸 TCP 会失效。")
+		if p.Warning != "" {
+			p.Warning += " · "
+		}
+		p.Warning += cfProxiedWarning
 	}
 	return p, nil
 }
+
+const cfProxiedWarning = "With the orange cloud on, traffic goes through Cloudflare: only WS / gRPC / HTTPUpgrade + TLS inbounds work; REALITY, Hysteria2, TUIC and plain TCP will break."
 
 func (m *Master) apiDNSPlan(w http.ResponseWriter, r *http.Request) {
 	var ch dnsChange
@@ -501,6 +509,7 @@ func (m *Master) apiDNSPlan(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, err.Error())
 		return
 	}
+	p.Warning = L(langOf(w), p.Warning)
 	writeJSON(w, 200, p)
 }
 
@@ -529,7 +538,7 @@ func (m *Master) apiDNSApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.RecordID != ch.RecordID || p.Action == "conflict" {
-		writeErr(w, 409, "DNS 记录在预览之后发生了变化，请重新预览")
+		writeErr(w, 409, "The DNS record changed after the preview; preview again")
 		return
 	}
 	var rec cfRecord

@@ -80,11 +80,11 @@ func (m *Master) apiSeries(w http.ResponseWriter, r *http.Request) {
 	switch step {
 	case 60, 300, 900, 1800, 3600, 10800, 21600, 86400:
 	default:
-		writeErr(w, 400, "step 只能是 60/300/900/1800/3600/10800/21600/86400")
+		writeErr(w, 400, "step must be 60/300/900/1800/3600/10800/21600/86400")
 		return
 	}
 	if f.to <= f.from {
-		writeErr(w, 400, "结束时间必须晚于开始时间")
+		writeErr(w, 400, "The end time must be after the start time")
 		return
 	}
 	// minute data covers the retention window exactly; older ranges fall back to hours
@@ -96,7 +96,7 @@ func (m *Master) apiSeries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if (f.to-f.from)/step > 2000 {
-		writeErr(w, 400, "数据点过多（上限 2000），请选择更大的粒度")
+		writeErr(w, 400, "Too many data points (max 2000); pick a coarser step")
 		return
 	}
 	off := int64(0)

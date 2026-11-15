@@ -4,7 +4,8 @@ import { Dialog, DialogTrigger, Modal, ModalOverlay, Popover, Button as RButton 
 import { api, type Template, type User, type Node } from './lib/api'
 import { useRoute, href } from './lib/router'
 import { useSubUrl } from './lib/actions'
-import { cx, IconButton, ModalDialog, Spinner, copyText, popoverCls, useIndicator, useToast } from './ui/kit'
+import { C } from './i18n/common'
+import { cx, IconButton, LangSwitch, ModalDialog, Spinner, copyText, popoverCls, useIndicator, useToast } from './ui/kit'
 import {
   IconOverview, IconChart, IconServer, IconPlug, IconUsers, IconBell, IconSun, IconMoon, IconLogout, IconSearch, IconGlobe, IconKey, IconMenu, IconRefresh,
 } from './ui/icons'
@@ -23,6 +24,9 @@ import { SettingsPage } from './pages/Settings'
 import { CertsPage } from './pages/Certs'
 import { preloadCharts } from './ui/charts'
 import { setLocal, useAppearance } from './lib/appearance'
+import { fullTime } from './lib/fmt'
+import { tr } from './i18n'
+import { KW, SH } from './i18n/shell'
 
 const IconGroup = (p: { size?: number }) => <svg width={p.size ?? 18} height={p.size ?? 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2" /><rect x="14" y="3" width="7" height="7" rx="2" /><rect x="3" y="14" width="7" height="7" rx="2" /><path d="M14 17.5h7M17.5 14v7" /></svg>
 const IconRoute = (p: { size?: number }) => <svg width={p.size ?? 18} height={p.size ?? 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="6" cy="19" r="2.5" /><circle cx="18" cy="5" r="2.5" /><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5" /></svg>
@@ -31,34 +35,34 @@ const IconGear = (p: { size?: number }) => <svg width={p.size ?? 18} height={p.s
 
 const IconShield = (p: { size?: number }) => <svg width={p.size ?? 18} height={p.size ?? 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z" /><path d="m9 12 2.2 2.2L15.5 10" /></svg>
 
-type NavItem = { id: string; label: string; key: string; icon: ReactNode; el: () => ReactNode; mobile?: boolean; words?: string }
-const groups: { label: string; items: NavItem[] }[] = [
+type NavItem = { id: string; readonly label: string; key: string; icon: ReactNode; el: () => ReactNode; mobile?: boolean; readonly words?: string }
+const groups: { readonly label: string; items: NavItem[] }[] = [
   {
-    label: '观测', items: [
-      { id: 'overview', label: '概览', key: 'o', icon: <IconOverview />, el: () => <OverviewPage />, mobile: true, words: 'dashboard home' },
-      { id: 'traffic', label: '流量分析', key: 't', icon: <IconChart />, el: () => <TrafficPage />, mobile: true, words: 'traffic domain 域名 ip' },
-      { id: 'live', label: '实时连接', key: 'l', icon: <IconPulse />, el: () => <LivePage />, words: 'connections live 连接' },
-      { id: 'events', label: '事件与审计', key: 'e', icon: <IconBell />, el: () => <EventsPage />, words: 'events audit log 日志' },
+    get label() { return tr(SH).gObserve }, items: [
+      { id: 'overview', get label() { return tr(SH).overview }, key: 'o', icon: <IconOverview />, el: () => <OverviewPage />, mobile: true, get words() { return 'dashboard home ' + tr(KW).overview } },
+      { id: 'traffic', get label() { return tr(SH).traffic }, key: 't', icon: <IconChart />, el: () => <TrafficPage />, mobile: true, get words() { return 'traffic domain ip ' + tr(KW).traffic } },
+      { id: 'live', get label() { return tr(SH).live }, key: 'l', icon: <IconPulse />, el: () => <LivePage />, get words() { return 'connections live ' + tr(KW).live } },
+      { id: 'events', get label() { return tr(SH).events }, key: 'e', icon: <IconBell />, el: () => <EventsPage />, get words() { return 'events audit log ' + tr(KW).events } },
     ],
   },
   {
-    label: '用户', items: [
-      { id: 'users', label: '用户', key: 'u', icon: <IconUsers />, el: () => <UsersPage />, mobile: true, words: 'users clients 客户端' },
-      { id: 'groups', label: '分组', key: 'p', icon: <IconGroup />, el: () => <GroupsPage />, words: 'groups squad' },
-      { id: 'subscriptions', label: '订阅', key: 's', icon: <IconGlobe />, el: () => <SubscriptionsPage />, words: '分流 规则 routing clash surge 模板 profile subscription host 订阅 cdn' },
+    get label() { return tr(SH).gUsers }, items: [
+      { id: 'users', get label() { return tr(SH).users }, key: 'u', icon: <IconUsers />, el: () => <UsersPage />, mobile: true, get words() { return 'users clients ' + tr(KW).users } },
+      { id: 'groups', get label() { return tr(SH).groups }, key: 'p', icon: <IconGroup />, el: () => <GroupsPage />, get words() { return 'groups squad ' + tr(KW).groups } },
+      { id: 'subscriptions', get label() { return tr(SH).subscriptions }, key: 's', icon: <IconGlobe />, el: () => <SubscriptionsPage />, get words() { return 'routing clash surge profile subscription host cdn ' + tr(KW).subscriptions } },
     ],
   },
   {
-    label: '节点与内核', items: [
-      { id: 'nodes', label: '节点', key: 'n', icon: <IconServer />, el: () => <NodesPage />, mobile: true, words: 'nodes server 服务器' },
-      { id: 'inbounds', label: '入站', key: 'i', icon: <IconPlug />, el: () => <InboundsPage />, words: 'inbounds vless reality 协议 连通性 probe' },
-      { id: 'certs', label: '域名与证书', key: 'c', icon: <IconShield />, el: () => <CertsPage />, words: 'certs certificate tls ssl acme letsencrypt cloudflare dns domain certbot 证书 域名 续期' },
-      { id: 'templates', label: '路由模板', key: 'r', icon: <IconRoute />, el: () => <TemplatesPage />, words: 'route outbound dns 出站 规则 模板' },
+    get label() { return tr(SH).gNodes }, items: [
+      { id: 'nodes', get label() { return tr(SH).nodes }, key: 'n', icon: <IconServer />, el: () => <NodesPage />, mobile: true, get words() { return 'nodes server ' + tr(KW).nodes } },
+      { id: 'inbounds', get label() { return tr(SH).inbounds }, key: 'i', icon: <IconPlug />, el: () => <InboundsPage />, get words() { return 'inbounds vless reality probe ' + tr(KW).inbounds } },
+      { id: 'certs', get label() { return tr(SH).certs }, key: 'c', icon: <IconShield />, el: () => <CertsPage />, get words() { return 'certs certificate tls ssl acme letsencrypt cloudflare dns domain certbot ' + tr(KW).certs } },
+      { id: 'templates', get label() { return tr(SH).templates }, key: 'r', icon: <IconRoute />, el: () => <TemplatesPage />, get words() { return 'route outbound dns ' + tr(KW).templates } },
     ],
   },
   {
-    label: '系统', items: [
-      { id: 'settings', label: '设置', key: 'x', icon: <IconGear />, el: () => <SettingsPage />, words: 'settings 2fa token backup import 3x-ui 迁移 通知' },
+    get label() { return tr(SH).gSystem }, items: [
+      { id: 'settings', get label() { return tr(SH).settings }, key: 'x', icon: <IconGear />, el: () => <SettingsPage />, get words() { return 'settings 2fa token backup import 3x-ui ' + tr(KW).settings } },
     ],
   },
 ]
@@ -66,7 +70,7 @@ const allItems = groups.flatMap((g) => g.items)
 
 function useTheme() {
   const { dark } = useAppearance()
-  // The header toggle flips this browser between light and dark; palette etc. live in 设置 → 外观.
+  // The header toggle flips this browser between light and dark; palette etc. live in Settings → Appearance.
   const toggle = () => setLocal({ mode: dark ? 'light' : 'dark' })
   return { dark, toggle }
 }
@@ -117,13 +121,14 @@ export function App() {
   }, [me.data])
 
   if (me.isLoading) return null
+  const t = tr(SH)
   if (!me.data) return <Login onDone={() => qc.invalidateQueries()} />
 
   const logout = async () => { await api('/auth/logout', { method: 'POST' }); qc.setQueryData(['me'], null) }
 
   return (
     <div className="min-h-full">
-      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-full focus:bg-accent focus:px-4 focus:py-2 focus:text-on-accent">跳到主要内容</a>
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-full focus:bg-accent focus:px-4 focus:py-2 focus:text-on-accent">{t.skip}</a>
       <header className="sticky top-0 z-30 border-b bg-base/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-2 px-4 sm:gap-3 lg:px-6">
           <a href={href('overview')} className="flex items-center gap-2.5 font-semibold outline-none">
@@ -135,24 +140,25 @@ export function App() {
           </a>
           <button type="button" onClick={() => setPalette(true)}
             className="ml-2 hidden h-8 w-72 cursor-pointer items-center gap-2 rounded-full border bg-surface px-3 text-[13px] text-muted outline-none transition-colors duration-(--dur-1) hover:border-hl-high focus-visible:ring-2 focus-visible:ring-accent md:flex">
-            <IconSearch size={14} />搜索页面、用户、节点…<kbd className="ml-auto rounded bg-overlay px-1.5 text-[11px]">⌘K</kbd>
+            <IconSearch size={14} /><span className="truncate">{t.searchBox}</span><kbd className="ml-auto rounded bg-overlay px-1.5 text-[11px]">⌘K</kbd>
           </button>
           <div className="flex-1" />
           <SyncStatus />
           {drafts > 0 && (
             <a href={href('templates')} className="hidden h-8 items-center gap-1.5 rounded-full bg-warn/15 px-3 text-[13px] font-medium text-warn xl:flex">
-              {drafts} 个模板草稿待发布
+              {t.drafts(drafts)}
             </a>
           )}
-          <IconButton label="搜索" className="md:hidden" onPress={() => setPalette(true)}><IconSearch /></IconButton>
-          <IconButton label="刷新数据" className="hidden sm:inline-flex" onPress={() => qc.invalidateQueries()}><IconRefresh /></IconButton>
+          <IconButton label={t.search} className="md:hidden" onPress={() => setPalette(true)}><IconSearch /></IconButton>
+          <IconButton label={t.refresh} className="hidden sm:inline-flex" onPress={() => qc.invalidateQueries()}><IconRefresh /></IconButton>
           <span className="hidden text-[13px] text-subtle lg:inline">{me.data.username}</span>
-          <IconButton label={dark ? '切换到浅色' : '切换到深色'} onPress={toggle}>{dark ? <IconSun /> : <IconMoon />}</IconButton>
-          <IconButton label="退出登录" onPress={logout}><IconLogout /></IconButton>
+          <LangSwitch />
+          <IconButton label={dark ? t.toLight : t.toDark} onPress={toggle}>{dark ? <IconSun /> : <IconMoon />}</IconButton>
+          <IconButton label={t.logout} onPress={logout}><IconLogout /></IconButton>
         </div>
       </header>
       <div className="mx-auto flex max-w-[1600px]">
-        <nav ref={navRef} aria-label="主导航" className="sticky top-14 hidden h-[calc(100vh-56px)] w-[232px] shrink-0 flex-col gap-4 overflow-y-auto px-3 py-5 lg:flex">
+        <nav ref={navRef} aria-label={t.mainNav} className="sticky top-14 hidden h-[calc(100vh-56px)] w-[232px] shrink-0 flex-col gap-4 overflow-y-auto px-3 py-5 lg:flex">
           {bar && <span aria-hidden className={cx('pointer-events-none absolute top-0 left-0 z-10 w-[3px] rounded-full bg-accent', bar.ready && 'rp-slide')}
             style={{ transform: `translate(${bar.x}px, ${bar.y + 8}px)`, height: bar.h - 16 }} />}
           {groups.map((g) => (
@@ -164,14 +170,14 @@ export function App() {
             </div>
           ))}
           <button type="button" onClick={() => setHelp(true)} className="mt-auto cursor-pointer px-3 text-left text-[11px] leading-4 text-muted outline-none hover:text-subtle focus-visible:text-text">
-            <kbd className="rounded bg-overlay px-1">⌘K</kbd> 搜索 · <kbd className="rounded bg-overlay px-1">g</kbd>+字母 跳转 · <kbd className="rounded bg-overlay px-1">?</kbd> 快捷键
+            <kbd className="rounded bg-overlay px-1">⌘K</kbd> {t.hintSearch} · <kbd className="rounded bg-overlay px-1">g</kbd>{t.hintJump} · <kbd className="rounded bg-overlay px-1">?</kbd> {t.hintKeys}
           </button>
         </nav>
         <main id="main" className="min-w-0 flex-1 px-4 pt-5 pb-24 lg:px-6 lg:pb-10">
           <div key={current.id} className="animate-page-in"><PageBoundary>{current.el()}</PageBoundary></div>
         </main>
       </div>
-      <nav aria-label="底部导航" className="fixed inset-x-0 bottom-0 z-30 flex border-t bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+      <nav aria-label={t.bottomNav} className="fixed inset-x-0 bottom-0 z-30 flex border-t bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
         {allItems.filter((i) => i.mobile).map((it) => (
           <a key={it.id} href={href(it.id)} aria-current={it.id === current.id ? 'page' : undefined}
             className={cx('flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] outline-none transition-colors duration-(--dur-1) focus-visible:bg-overlay', it.id === current.id ? 'text-accent' : 'text-subtle')}>
@@ -180,12 +186,12 @@ export function App() {
         ))}
         <button type="button" onClick={() => setMore(true)} aria-haspopup="dialog" aria-expanded={more}
           className={cx('flex flex-1 cursor-pointer flex-col items-center gap-0.5 py-2 text-[11px] outline-none focus-visible:bg-overlay', !current.mobile ? 'text-accent' : 'text-subtle')}>
-          <IconMenu />更多
+          <IconMenu />{t.more}
         </button>
       </nav>
       <ModalOverlay isOpen={more} onOpenChange={setMore} isDismissable className="fixed inset-0 z-50 bg-black/30 data-[entering]:animate-fade-in data-[exiting]:animate-fade-out lg:hidden">
         <Modal className="fixed inset-x-0 bottom-0 rounded-t-[20px] border-t bg-surface p-4 pb-[calc(16px+env(safe-area-inset-bottom))] outline-none data-[entering]:animate-sheet-in data-[exiting]:animate-sheet-out">
-          <Dialog aria-label="更多页面" className="outline-none">
+          <Dialog aria-label={t.morePages} className="outline-none">
             <div className="mb-3 flex justify-center" aria-hidden><span className="h-1 w-10 rounded-full bg-hl-high" /></div>
             <div className="grid grid-cols-4 gap-2">
               {allItems.map((it) => (
@@ -226,36 +232,37 @@ function SyncStatus() {
   const problems = ns.filter((n) => !n.online || n.apply_error)
   const syncing = ns.filter((n) => n.online && !n.apply_error && n.applied_revision < n.revision)
   const state = problems.length ? 'bad' : syncing.length ? 'sync' : 'ok'
+  const t = tr(SH)
   const pill = cx('flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium outline-none transition-colors duration-(--dur-2) focus-visible:ring-2 focus-visible:ring-accent sm:px-3',
     state === 'bad' ? 'cursor-pointer bg-bad/12 text-bad hover:bg-bad/20' : state === 'sync' ? 'bg-accent/12 text-accent' : 'text-subtle')
-  const label = state === 'bad' ? `${problems.length} 个节点异常` : state === 'sync' ? '同步中…' : '已同步'
+  const label = state === 'bad' ? t.nodesBad(problems.length) : state === 'sync' ? t.syncing : t.synced
   const icon = state === 'bad' ? <span className="h-2 w-2 rounded-full bg-current" /> : state === 'sync' ? <Spinner size={12} /> : <span className="h-2 w-2 rounded-full bg-good" />
   if (state !== 'bad') {
-    return <span className={pill} role="status" title={state === 'ok' ? `${ns.length} 个节点配置已是最新` : `${syncing.length} 个节点正在应用新配置`}>{icon}<span key={state} className="hidden animate-content-in sm:inline">{label}</span></span>
+    return <span className={pill} role="status" title={state === 'ok' ? t.syncedTitle(ns.length) : t.syncingTitle(syncing.length)}>{icon}<span key={state} className="hidden animate-content-in sm:inline">{label}</span></span>
   }
   return (
     <DialogTrigger>
       <RButton className={pill} aria-label={label}>{icon}<span key={state} className="animate-content-in">{label}</span></RButton>
       <Popover placement="bottom end" className={cx('w-[320px] max-w-[calc(100vw-24px)]', popoverCls)}>
-        <Dialog aria-label="异常节点" className="p-2 outline-none">
+        <Dialog aria-label={t.badNodes} className="p-2 outline-none">
           {({ close }) => (
             <>
-              <div className="px-2 pt-1 pb-2 text-[13px] font-semibold">异常节点</div>
+              <div className="px-2 pt-1 pb-2 text-[13px] font-semibold">{t.badNodes}</div>
               <ul className="flex flex-col gap-1">
                 {problems.map((n) => (
                   <li key={n.id}>
                     <a href={href('nodes')} onClick={close} className="block rounded-[10px] px-2 py-2 outline-none hover:bg-overlay focus-visible:bg-overlay">
                       <div className="flex items-center justify-between gap-2 text-sm">
                         <span className="truncate font-medium">{n.name}</span>
-                        <span className="shrink-0 text-xs text-bad">{!n.online ? '离线' : '下发失败'}</span>
+                        <span className="shrink-0 text-xs text-bad">{!n.online ? t.offline : t.applyFailed}</span>
                       </div>
                       {n.apply_error && <div className="mt-1 line-clamp-2 font-mono text-[11px] break-all text-muted">{n.apply_error}</div>}
-                      {!n.online && <div className="mt-0.5 text-xs text-muted">最后在线 {n.last_seen ? new Date(n.last_seen * 1000).toLocaleString('zh-CN', { hour12: false }) : '—'}</div>}
+                      {!n.online && <div className="mt-0.5 text-xs text-muted">{t.lastSeen(fullTime(n.last_seen))}</div>}
                     </a>
                   </li>
                 ))}
               </ul>
-              <a href={href('nodes')} onClick={close} className="mt-1 block rounded-[10px] px-2 py-1.5 text-[13px] text-accent hover:bg-overlay">前往节点页 →</a>
+              <a href={href('nodes')} onClick={close} className="mt-1 block rounded-[10px] px-2 py-1.5 text-[13px] text-accent hover:bg-overlay">{t.toNodes}</a>
             </>
           )}
         </Dialog>
@@ -267,26 +274,39 @@ function SyncStatus() {
 type Hit = { id: string; label: string; hint?: string; kind: 'page' | 'user' | 'node' | 'action'; to: string; token?: string }
 const kindIcon = (h: Hit) => h.kind === 'page' ? (allItems.find((i) => 'p' + i.id === h.id)?.icon ?? <IconOverview />)
   : h.kind === 'user' ? <IconUsers /> : h.kind === 'node' ? <IconServer /> : h.id === 'a-2fa' ? <IconKey /> : <IconGear />
-const sectionName = { recent: '最近访问', page: '页面', user: '用户', node: '节点', more: '相关页面', action: '操作' } as const
+const sectionName = {
+  get recent() { return tr(SH).secRecent }, get page() { return tr(SH).secPage }, get user() { return tr(SH).secUser },
+  get node() { return tr(SH).secNode }, get more() { return tr(SH).secMore }, get action() { return tr(SH).secAction },
+}
 
 function loadRecent(): Hit[] {
-  try { return JSON.parse(localStorage.getItem('sbp-recent') ?? '[]') } catch { return [] }
+  let hs: Hit[] = []
+  try { hs = JSON.parse(localStorage.getItem('sbp-recent') ?? '[]') } catch { return [] }
+  // Pages and actions were stored with the label of the language at the time; relabel them.
+  const acts = actions()
+  return hs.map((h) => h.kind === 'page' ? { ...h, label: allItems.find((i) => 'p' + i.id === h.id)?.label ?? h.label }
+    : h.kind === 'action' ? { ...h, label: acts.find((x) => x.id === h.id)?.label ?? h.label }
+      : h.kind === 'node' ? { ...h, hint: tr(SH).viewTraffic } : h)
 }
 function pushRecent(h: Hit) {
   try { localStorage.setItem('sbp-recent', JSON.stringify([h, ...loadRecent().filter((x) => x.id !== h.id)].slice(0, 5))) } catch { /* private mode */ }
 }
 
-const actions: Hit[] = [
-  { id: 'a-newuser', label: '新建用户', kind: 'action', to: href('users', { new: 1 }) },
-  { id: 'a-newnode', label: '添加节点', kind: 'action', to: href('nodes', { add: 1 }) },
-  { id: 'a-expiring', label: '查看即将到期的用户', kind: 'action', to: href('users', { f: 'expiring' }) },
-  { id: 'a-2fa', label: '开启两步验证', kind: 'action', to: href('settings', { s: 'account' }) },
-  { id: 'a-apikey', label: '创建 API 密钥 / 连接 MCP 智能体', kind: 'action', to: href('settings', { s: 'api' }) },
-  { id: 'a-apidocs', label: 'API 文档（OpenAPI）', kind: 'action', to: href('settings', { view: 'api-docs' }) },
-  { id: 'a-routing', label: '编辑分流规则（订阅配置模板）', kind: 'action', to: href('subscriptions', { tab: 'routing' }) },
-  { id: 'a-import', label: '从 3x-ui 迁移', kind: 'action', to: href('settings', { s: 'import' }) },
-  { id: 'a-backup', label: '下载备份', kind: 'action', to: href('settings', { s: 'backup' }) },
-]
+// Built per call so labels follow the current language.
+const actions = (): Hit[] => {
+  const t = tr(SH)
+  return [
+    { id: 'a-newuser', label: t.aNewUser, kind: 'action', to: href('users', { new: 1 }) },
+    { id: 'a-newnode', label: t.aNewNode, kind: 'action', to: href('nodes', { add: 1 }) },
+    { id: 'a-expiring', label: t.aExpiring, kind: 'action', to: href('users', { f: 'expiring' }) },
+    { id: 'a-2fa', label: t.a2fa, kind: 'action', to: href('settings', { s: 'account' }) },
+    { id: 'a-apikey', label: t.aApiKey, kind: 'action', to: href('settings', { s: 'api' }) },
+    { id: 'a-apidocs', label: t.aApiDocs, kind: 'action', to: href('settings', { view: 'api-docs' }) },
+    { id: 'a-routing', label: t.aRouting, kind: 'action', to: href('subscriptions', { tab: 'routing' }) },
+    { id: 'a-import', label: t.aImport, kind: 'action', to: href('settings', { s: 'import' }) },
+    { id: 'a-backup', label: t.aBackup, kind: 'action', to: href('settings', { s: 'backup' }) },
+  ]
+}
 
 function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const [q, setQ] = useState('')
@@ -303,7 +323,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
     const out: { key: keyof typeof sectionName; hits: Hit[] }[] = []
     if (!s) {
       out.push({ key: 'recent', hits: loadRecent() })
-      out.push({ key: 'action', hits: actions.slice(0, 3) })
+      out.push({ key: 'action', hits: actions().slice(0, 3) })
       out.push({ key: 'page', hits: allItems.map(page) })
     } else {
       // Pages matched by name rank first; pages matched only by keywords come after users and nodes.
@@ -314,10 +334,10 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
       })
       out.push({
         key: 'node', hits: (nodes.data ?? []).filter((n) => match(n.name, n.address, n.public_address)).slice(0, 5)
-          .map((n) => ({ id: 'n' + n.id, label: n.name, hint: '查看流量', kind: 'node', to: href('traffic', { node: n.id }) })),
+          .map((n) => ({ id: 'n' + n.id, label: n.name, hint: tr(SH).viewTraffic, kind: 'node', to: href('traffic', { node: n.id }) })),
       })
       out.push({ key: 'more', hits: allItems.filter((i) => !match(i.label, i.id) && match(i.words)).map(page) })
-      out.push({ key: 'action', hits: actions.filter((h) => match(h.label)) })
+      out.push({ key: 'action', hits: actions().filter((h) => match(h.label)) })
     }
     return out.filter((x) => x.hits.length)
   }, [q, users.data, nodes.data, open])
@@ -334,17 +354,18 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
   }
   const copySub = (h: Hit) => {
     if (!h.token) return
-    copyText(subUrl({ sub_token: h.token })).then(() => toast('good', `已复制 ${h.label} 的订阅链接`), () => toast('bad', '复制失败'))
+    copyText(subUrl({ sub_token: h.token })).then(() => toast('good', tr(SH).copiedSub(h.label)), () => toast('bad', tr(C).copyFailed))
   }
   let idx = -1
+  const t = tr(SH)
   return (
     <ModalOverlay isOpen={open} onOpenChange={onOpenChange} isDismissable
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4 pt-[12vh] backdrop-blur-[2px] data-[entering]:animate-fade-in data-[exiting]:animate-fade-out">
       <Modal className="w-full max-w-[560px] overflow-hidden rounded-[16px] border bg-surface shadow-[0_8px_24px_rgb(0_0_0/0.18)] outline-none data-[entering]:animate-palette-in data-[exiting]:animate-palette-out">
-        <Dialog aria-label="搜索" className="outline-none">
+        <Dialog aria-label={t.search} className="outline-none">
           <div className="flex items-center gap-2 border-b px-4">
             <IconSearch size={16} className="text-muted" />
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索页面、用户、节点、操作…" aria-label="搜索"
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.paletteInput} aria-label={t.search}
               role="combobox" aria-expanded aria-controls="palette-list" aria-activedescendant={cur?.id}
               onKeyDown={(e) => {
                 if (e.key === 'ArrowDown') { e.preventDefault(); setSel((x) => Math.min(flat.length - 1, x + 1)) }
@@ -360,7 +381,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
           <ul id="palette-list" role="listbox" ref={listRef} className="relative max-h-[50vh] overflow-y-auto p-1.5">
             {hl && <li aria-hidden className={cx('pointer-events-none absolute top-0 left-1.5 right-1.5 rounded-[10px] bg-overlay', hl.ready && 'rp-slide-fast')}
               style={{ transform: `translateY(${hl.y}px)`, height: hl.h }} />}
-            {flat.length === 0 && <li className="px-3 py-6 text-center text-[13px] text-muted">没有结果</li>}
+            {flat.length === 0 && <li className="px-3 py-6 text-center text-[13px] text-muted">{t.noResults}</li>}
             {sections.map((sec) => (
               <li key={sec.key} role="presentation">
                 <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-muted">{sectionName[sec.key]}</div>
@@ -374,7 +395,7 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
                         <span className="text-subtle">{kindIcon(h)}</span>
                         <span className="min-w-0 flex-1 truncate">{h.label}</span>
                         {h.hint && <span className="max-w-[40%] truncate text-xs text-muted">{h.hint}</span>}
-                        {h.kind === 'user' && i === sel && <kbd className="shrink-0 rounded bg-surface px-1.5 text-[11px] text-subtle">⌘C 复制订阅</kbd>}
+                        {h.kind === 'user' && i === sel && <kbd className="shrink-0 rounded bg-surface px-1.5 text-[11px] text-subtle">⌘C {t.copySub}</kbd>}
                       </li>
                     )
                   })}
@@ -383,8 +404,8 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
             ))}
           </ul>
           <div className="flex flex-wrap gap-x-3 gap-y-1 border-t px-4 py-2 text-[11px] text-muted">
-            <span><kbd className="rounded bg-overlay px-1">↑↓</kbd> 选择</span><span><kbd className="rounded bg-overlay px-1">↵</kbd> 打开</span>
-            <span><kbd className="rounded bg-overlay px-1">⌘C</kbd> 复制订阅</span><span><kbd className="rounded bg-overlay px-1">esc</kbd> 关闭</span>
+            <span><kbd className="rounded bg-overlay px-1">↑↓</kbd> {t.kSelect}</span><span><kbd className="rounded bg-overlay px-1">↵</kbd> {t.kOpen}</span>
+            <span><kbd className="rounded bg-overlay px-1">⌘C</kbd> {t.kCopy}</span><span><kbd className="rounded bg-overlay px-1">esc</kbd> {t.kClose}</span>
           </div>
         </Dialog>
       </Modal>
@@ -393,14 +414,15 @@ function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (v: bool
 }
 
 function ShortcutHelp({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  const t = tr(SH)
   const rows: [string, string][] = [
-    ['⌘K / Ctrl K', '命令面板'], ['/', '聚焦搜索框'], ['?', '快捷键帮助'],
-    ...allItems.map((i) => [`g ${i.key}`, `前往${i.label}`] as [string, string]),
-    ['j / k', '用户列表：上下移动；详情抽屉：上一个 / 下一个'], ['Enter', '打开用户详情'], ['x', '选中当前用户'],
-    ['⌘A', '全选当前筛选结果'], ['Esc', '取消选择 / 关闭弹窗'],
+    ['⌘K / Ctrl K', t.scPalette], ['/', t.scFocus], ['?', t.scHelp],
+    ...allItems.map((i) => [`g ${i.key}`, t.scGo(i.label)] as [string, string]),
+    ['j / k', t.scJK], ['Enter', t.scEnter], ['x', t.scX],
+    ['⌘A', t.scAll], ['Esc', t.scEsc],
   ]
   return (
-    <ModalDialog isOpen={open} onOpenChange={onOpenChange} title="键盘快捷键">
+    <ModalDialog isOpen={open} onOpenChange={onOpenChange} title={t.shortcuts}>
       <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[13px]">
         {rows.map(([k, v]) => <div key={k} className="contents"><dt><kbd className="rounded bg-overlay px-1.5 py-0.5 font-mono text-[12px]">{k}</kbd></dt><dd className="text-subtle">{v}</dd></div>)}
       </dl>
@@ -416,9 +438,9 @@ class PageBoundary extends Component<{ children: ReactNode }, { err: Error | nul
     if (!this.state.err) return this.props.children
     return (
       <div className="rounded-[16px] border bg-surface p-6 text-[13px]">
-        <div className="text-[15px] font-medium text-bad">页面出错了</div>
+        <div className="text-[15px] font-medium text-bad">{tr(SH).pageError}</div>
         <pre className="mt-2 font-mono text-xs break-all whitespace-pre-wrap text-muted">{this.state.err.message}</pre>
-        <button type="button" onClick={() => this.setState({ err: null })} className="mt-3 h-8 cursor-pointer rounded-full bg-overlay px-4 text-sm font-medium hover:bg-hl-med">重试</button>
+        <button type="button" onClick={() => this.setState({ err: null })} className="mt-3 h-8 cursor-pointer rounded-full bg-overlay px-4 text-sm font-medium hover:bg-hl-med">{tr(SH).retry}</button>
       </div>
     )
   }

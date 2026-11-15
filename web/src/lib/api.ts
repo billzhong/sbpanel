@@ -1,3 +1,5 @@
+import { getLang } from '../i18n'
+
 export class ApiError extends Error {
   status: number
   data: any
@@ -11,7 +13,7 @@ export class ApiError extends Error {
 export async function api<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const res = await fetch('/api' + path, {
     method: init?.method ?? 'GET',
-    headers: init?.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers: init?.body !== undefined ? { 'Content-Type': 'application/json', 'X-Lang': getLang() } : { 'X-Lang': getLang() },
     body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     credentials: 'same-origin',
   })
@@ -26,7 +28,7 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
 
 /** Like api() but also returns the response headers (e.g. X-Precision on /traffic/top). */
 export async function apiRaw<T>(path: string): Promise<{ data: T; headers: Headers }> {
-  const res = await fetch('/api' + path, { credentials: 'same-origin' })
+  const res = await fetch('/api' + path, { credentials: 'same-origin', headers: { 'X-Lang': getLang() } })
   const text = await res.text()
   const data = text ? JSON.parse(text) : null
   if (!res.ok) {
@@ -116,7 +118,7 @@ export type Event = { ts: number; kind: string; user_id: number; user: string; n
 
 export type Enroll = { node_id: string; token: string; expires_at: number; master: string; ca_sha256: string; command: string }
 
-// ---- subscription-page themes (settings → 订阅页) ----
+// ---- subscription-page themes (settings → subscription page) ----
 
 export type SubThemeField = {
   key?: string; type: 'title' | 'text' | 'textarea' | 'url' | 'color' | 'number' | 'switch' | 'select' | 'multiselect'
@@ -145,7 +147,7 @@ export const SUB_CLIENTS = [
 export async function apiUpload<T>(path: string, file: File): Promise<T> {
   const fd = new FormData()
   fd.append('file', file)
-  const res = await fetch('/api' + path, { method: 'POST', body: fd, credentials: 'same-origin' })
+  const res = await fetch('/api' + path, { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-Lang': getLang() } })
   const text = await res.text()
   const data = text ? JSON.parse(text) : null
   if (!res.ok) {

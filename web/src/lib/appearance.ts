@@ -2,6 +2,8 @@
 // Sources (last wins): server default (window.__SBP_UI, injected into index.html) -> this browser (localStorage 'sbp-ui').
 // The inline boot script in index.html applies the same state before first paint; keep the two in sync.
 import { useSyncExternalStore } from 'react'
+import { tr } from '../i18n'
+import { P } from '../i18n/appearance'
 
 export type Mode = 'system' | 'light' | 'dark'
 export type Palette = 'neutral' | 'rosepine' | 'catppuccin' | 'nord'
@@ -14,10 +16,10 @@ export type Appearance = {
 }
 
 export const PALETTES: { id: Palette; label: string; hint: string; swatch: { light: string[]; dark: string[] } }[] = [
-  { id: 'neutral', label: '石墨', hint: '中性灰，默认', swatch: { light: ['#f5f6f8', '#ffffff', '#1f6a88', '#1b1d22'], dark: ['#111215', '#1a1c20', '#5aaed0', '#eceef2'] } },
-  { id: 'rosepine', label: 'Rosé Pine', hint: '暖调柔和', swatch: { light: ['#faf4ed', '#fffaf3', '#286983', '#3c3858'], dark: ['#191724', '#232136', '#5ba3c4', '#e0def4'] } },
+  { id: 'neutral', get label() { return tr(P).neutral }, get hint() { return tr(P).neutralHint }, swatch: { light: ['#f5f6f8', '#ffffff', '#1f6a88', '#1b1d22'], dark: ['#111215', '#1a1c20', '#5aaed0', '#eceef2'] } },
+  { id: 'rosepine', label: 'Rosé Pine', get hint() { return tr(P).rosepineHint }, swatch: { light: ['#faf4ed', '#fffaf3', '#286983', '#3c3858'], dark: ['#191724', '#232136', '#5ba3c4', '#e0def4'] } },
   { id: 'catppuccin', label: 'Catppuccin', hint: 'Latte / Mocha', swatch: { light: ['#e6e9ef', '#eff1f5', '#1857d6', '#4c4f69'], dark: ['#11111b', '#1e1e2e', '#89b4fa', '#cdd6f4'] } },
-  { id: 'nord', label: 'Nord', hint: '冷调北欧', swatch: { light: ['#e5e9f0', '#f3f5f8', '#36608c', '#2e3440'], dark: ['#1f232b', '#2b303b', '#88c0d0', '#eceff4'] } },
+  { id: 'nord', label: 'Nord', get hint() { return tr(P).nordHint }, swatch: { light: ['#e5e9f0', '#f3f5f8', '#36608c', '#2e3440'], dark: ['#1f232b', '#2b303b', '#88c0d0', '#eceff4'] } },
 ]
 
 // Surfaces + text per palette/mode, used to resolve a custom accent that stays readable everywhere.

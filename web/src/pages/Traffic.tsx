@@ -7,13 +7,16 @@ import { useRoute, go } from '../lib/router'
 import { Button, Card, PageHeader, Segmented, Select, Skeleton, cx, popoverCls } from '../ui/kit'
 import { TimeChart, ShareList, entitySlot, entityColor } from '../ui/charts'
 import { IconSearch } from '../ui/icons'
+import { tr } from '../i18n'
+import { C } from '../i18n/common'
+import { TR } from '../i18n/traffic'
 
 const ranges = [
-  { id: '1h', label: '1 小时', sec: 3600 },
-  { id: '6h', label: '6 小时', sec: 6 * 3600 },
-  { id: '24h', label: '24 小时', sec: 86400 },
-  { id: '7d', label: '7 天', sec: 7 * 86400 },
-  { id: '30d', label: '30 天', sec: 30 * 86400 },
+  { id: '1h', get label() { return tr(TR).r1h }, sec: 3600 },
+  { id: '6h', get label() { return tr(TR).r6h }, sec: 6 * 3600 },
+  { id: '24h', get label() { return tr(TR).r24h }, sec: 86400 },
+  { id: '7d', get label() { return tr(TR).r7d }, sec: 7 * 86400 },
+  { id: '30d', get label() { return tr(TR).r30d }, sec: 30 * 86400 },
 ] as const
 type RangeID = (typeof ranges)[number]['id']
 
@@ -24,14 +27,14 @@ const KEEP = 30 * 86400
 const autoStep = (span: number) => STEPS.find((st) => span / st <= 720) ?? 86400
 
 const groupsOpts = [
-  { id: 'total', label: '总量' }, { id: 'user', label: '按用户' }, { id: 'node', label: '按节点' },
-  { id: 'inbound', label: '按入站' }, { id: 'outbound', label: '按出站' },
+  { id: 'total', get label() { return tr(TR).gTotal } }, { id: 'user', get label() { return tr(TR).gUser } }, { id: 'node', get label() { return tr(TR).gNode } },
+  { id: 'inbound', get label() { return tr(TR).gInbound } }, { id: 'outbound', get label() { return tr(TR).gOutbound } },
 ] as const
 
 const dims = [
-  { id: 'domain', label: '域名' }, { id: 'host', label: '完整主机' }, { id: 'src_ip', label: '来源 IP' },
-  { id: 'port', label: '端口' }, { id: 'user', label: '用户' }, { id: 'node', label: '节点' },
-  { id: 'inbound', label: '入站' }, { id: 'outbound', label: '出站' }, { id: 'rule', label: '路由规则' },
+  { id: 'domain', get label() { return tr(TR).dDomain } }, { id: 'host', get label() { return tr(TR).dHost } }, { id: 'src_ip', get label() { return tr(TR).dSrc } },
+  { id: 'port', get label() { return tr(TR).dPort } }, { id: 'user', get label() { return tr(TR).dUser } }, { id: 'node', get label() { return tr(TR).dNode } },
+  { id: 'inbound', get label() { return tr(TR).dInbound } }, { id: 'outbound', get label() { return tr(TR).dOutbound } }, { id: 'rule', get label() { return tr(TR).dRule } },
 ] as const
 type DimID = (typeof dims)[number]['id']
 
@@ -47,6 +50,7 @@ export function TrafficPage() {
   const node = params.get('node') || ''
   const dim = (params.get('dim') as DimID) || 'domain'
   const [q, setQ] = useState(params.get('q') || '')
+  const t = tr(TR)
 
   const set = (k: string, v: string) => {
     const next: Record<string, string> = Object.fromEntries(params.entries())
@@ -91,16 +95,16 @@ export function TrafficPage() {
     placeholderData: keepPreviousData,
   })
   const precision = top.data?.precision ?? ''
-  const precisionHint = precision === '5m' ? '明细精度 5 分钟' : precision === '1h' ? '明细精度 1 小时' : ''
+  const precisionHint = precision === '5m' ? t.prec5m : precision === '1h' ? t.prec1h : ''
 
   const chartSeries = useMemo(() => {
     const s = series.data?.series ?? []
     if (group === 'total') {
-      const t = s[0]
-      if (!t) return []
+      const tot = s[0]
+      if (!tot) return []
       return [
-        { key: 'down', label: '下行', values: t.points.map((p) => p[2]), color: 'var(--s1)' },
-        { key: 'up', label: '上行', values: t.points.map((p) => p[1]), color: 'var(--s2)' },
+        { key: 'down', label: t.down, values: tot.points.map((p) => p[2]), color: 'var(--s1)' },
+        { key: 'up', label: t.up, values: tot.points.map((p) => p[1]), color: 'var(--s2)' },
       ]
     }
     // Colour and stack order follow the entity (first-seen slot), never its rank, so they survive filters and refreshes.
@@ -117,31 +121,31 @@ export function TrafficPage() {
 
   return (
     <>
-      <PageHeader title="流量分析" subtitle="按用户、节点、入站、出站、域名、来源 IP 拆分的精确字节数（来自内核每条连接的计数）" />
+      <PageHeader title={t.title} subtitle={t.subtitle} />
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div className="flex min-w-0 max-w-full flex-col gap-1.5">
-          <span className="text-[13px] font-medium text-subtle">时间范围</span>
-          <Segmented label="时间范围" value={range} onChange={(v) => (v === 'custom' ? setPicker(true) : set('range', v))}
+          <span className="text-[13px] font-medium text-subtle">{t.range}</span>
+          <Segmented label={t.range} value={range} onChange={(v) => (v === 'custom' ? setPicker(true) : set('range', v))}
             options={[...ranges.map((x) => ({ id: x.id as RangeID | 'custom', label: x.label })), {
-              id: 'custom', label: <span ref={customRef} className="tabular" onClick={() => custom && setPicker(true)}>{custom ? rangeLabel(from, to) : '自定义'}</span>,
+              id: 'custom', label: <span ref={customRef} className="tabular" onClick={() => custom && setPicker(true)}>{custom ? rangeLabel(from, to) : t.custom}</span>,
             }]} />
           <Popover triggerRef={customRef} isOpen={picker} onOpenChange={setPicker} placement="bottom" className={cx('w-[340px] max-w-[calc(100vw-24px)]', popoverCls)}>
-            <Dialog aria-label="自定义时间范围" className="p-3 outline-none">
+            <Dialog aria-label={t.customRange} className="p-3 outline-none">
               <RangePicker from={custom ? from : to - r.sec} to={custom ? to : Math.floor(Date.now() / 60000) * 60}
                 onApply={(f, t) => { setPicker(false); setRange(f, t) }} onCancel={() => setPicker(false)} />
             </Dialog>
           </Popover>
         </div>
-        <Select label="粒度" className="w-36" value={stepOpts.includes(Number(stepSel)) ? stepSel : 'auto'} onChange={(v) => set('step', v)}
-          options={[{ id: 'auto', label: `自动（${stepLabel(auto)}）` }, ...stepOpts.map((st) => ({ id: String(st), label: stepLabel(st) }))]} />
-        <Select label="分组" className="w-32" value={group} onChange={(v) => set('group', v)} options={groupsOpts.map((s) => ({ id: s.id, label: s.label }))} />
-        <Select label="用户" className="w-40" value={user || 'all'} onChange={(v) => set('user', v === 'all' ? '' : v)}
-          options={[{ id: 'all', label: '全部用户' }, ...(users.data ?? []).map((u) => ({ id: String(u.id), label: u.username }))]} />
-        <Select label="节点" className="w-40" value={node || 'all'} onChange={(v) => set('node', v === 'all' ? '' : v)}
-          options={[{ id: 'all', label: '全部节点' }, ...(nodes.data ?? []).map((n) => ({ id: n.id, label: n.name }))]} />
+        <Select label={t.step} className="w-40" value={stepOpts.includes(Number(stepSel)) ? stepSel : 'auto'} onChange={(v) => set('step', v)}
+          options={[{ id: 'auto', label: t.auto(stepLabel(auto)) }, ...stepOpts.map((st) => ({ id: String(st), label: stepLabel(st) }))]} />
+        <Select label={t.group} className="w-36" value={group} onChange={(v) => set('group', v)} options={groupsOpts.map((s) => ({ id: s.id, label: s.label }))} />
+        <Select label={t.user} className="w-40" value={user || 'all'} onChange={(v) => set('user', v === 'all' ? '' : v)}
+          options={[{ id: 'all', label: t.allUsers }, ...(users.data ?? []).map((u) => ({ id: String(u.id), label: u.username }))]} />
+        <Select label={t.node} className="w-40" value={node || 'all'} onChange={(v) => set('node', v === 'all' ? '' : v)}
+          options={[{ id: 'all', label: t.allNodes }, ...(nodes.data ?? []).map((n) => ({ id: n.id, label: n.name }))]} />
       </div>
 
-      <Card busy={series.isPlaceholderData} title={<span>流量趋势 <span className="ml-2 text-[13px] font-normal text-subtle tabular">↓ {bytes(sumDown)} · ↑ {bytes(sumUp)} · 每点 {stepLabel(series.data?.step ?? step)}</span></span>}>
+      <Card busy={series.isPlaceholderData} title={<span>{t.trend} <span className="ml-2 text-[13px] font-normal text-subtle tabular">↓ {bytes(sumDown)} · ↑ {bytes(sumUp)} · {t.perPoint(stepLabel(series.data?.step ?? step))}</span></span>}>
         {series.isPending && !series.data ? <Skeleton className="h-[280px]" /> : (
           <TimeChart height={280} step={series.data?.step ?? step} times={times} series={chartSeries} stacked={group !== 'total'}
             onBrush={(f: number, t: number) => { const lo = Math.max(Math.floor(Date.now() / 1000) - KEEP, Math.floor(f / 60) * 60); const hi = Math.ceil(t / 60) * 60; if (hi - lo < 120) return false; setRange(lo, hi) }} />
@@ -149,10 +153,10 @@ export function TrafficPage() {
       </Card>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-        <Card title={<span>分布{precisionHint && <span className="ml-2 text-xs font-normal text-muted">{precisionHint}</span>}</span>} busy={top.isPlaceholderData} action={
+        <Card title={<span>{t.share}{precisionHint && <span className="ml-2 text-xs font-normal text-muted">{precisionHint}</span>}</span>} busy={top.isPlaceholderData} action={
           <label className="relative">
             <IconSearch size={14} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="过滤" aria-label="过滤"
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.filter} aria-label={t.filter}
               className="h-8 w-40 rounded-full border bg-base pr-3 pl-8 text-[13px] outline-none focus:border-accent" />
           </label>
         }>
@@ -170,16 +174,16 @@ export function TrafficPage() {
               onSelect={dim === 'user' ? (k) => set('user', k) : dim === 'node' ? (k) => set('node', k) : undefined} />
           )}
         </Card>
-        <Card title={<span>明细（{num(rows.length)} 项）{precisionHint && <span className="ml-2 text-xs font-normal text-muted">{precisionHint}</span>}</span>} pad={false} busy={top.isPlaceholderData}>
+        <Card title={<span>{t.detail(num(rows.length))}{precisionHint && <span className="ml-2 text-xs font-normal text-muted">{precisionHint}</span>}</span>} pad={false} busy={top.isPlaceholderData}>
           <div className="max-h-[560px] overflow-auto">
             <table className="w-full text-[13px]">
               <thead className="sticky top-0 bg-surface text-left text-xs text-subtle">
                 <tr className="border-b">
                   <th className="px-5 py-2 font-medium">{dims.find((d) => d.id === dim)?.label}</th>
-                  <th className="px-3 py-2 text-right font-medium">下行</th>
-                  <th className="px-3 py-2 text-right font-medium">上行</th>
-                  <th className="px-3 py-2 text-right font-medium">连接</th>
-                  <th className="px-5 py-2 text-right font-medium">用户数</th>
+                  <th className="px-3 py-2 text-right font-medium">{t.down}</th>
+                  <th className="px-3 py-2 text-right font-medium">{t.up}</th>
+                  <th className="px-3 py-2 text-right font-medium">{t.conns}</th>
+                  <th className="px-5 py-2 text-right font-medium">{t.usersCol}</th>
                 </tr>
               </thead>
               <tbody>
@@ -192,7 +196,7 @@ export function TrafficPage() {
                     <td className="px-5 py-2 text-right tabular">{x.users}</td>
                   </tr>
                 ))}
-                {rows.length === 0 && !top.isPending && <tr><td colSpan={5} className="py-10 text-center text-muted">此时间范围内没有数据</td></tr>}
+                {rows.length === 0 && !top.isPending && <tr><td colSpan={5} className="py-10 text-center text-muted">{t.empty}</td></tr>}
               </tbody>
             </table>
           </div>
@@ -203,12 +207,16 @@ export function TrafficPage() {
 }
 
 function stepLabel(s: number) {
-  return s >= 86400 ? `${s / 86400} 天` : s >= 3600 ? `${s / 3600} 小时` : `${s / 60} 分钟`
+  const t = tr(TR)
+  return s >= 86400 ? t.day(s / 86400) : s >= 3600 ? t.hour(s / 3600) : t.min(s / 60)
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 const md = (d: Date) => `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-const dur = (sec: number) => { const m = Math.round(sec / 60); return m >= 1440 ? `${Math.floor(m / 1440)} 天${m % 1440 >= 60 ? ` ${Math.floor((m % 1440) / 60)} 小时` : ''}` : m >= 60 ? `${Math.floor(m / 60)} 小时${m % 60 ? ` ${m % 60} 分钟` : ''}` : `${m} 分钟` }
+const dur = (sec: number) => {
+  const c = tr(C), m = Math.round(sec / 60), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60)
+  return m >= 1440 ? (h ? c.durDH(d, h) : c.unitD(d)) : m >= 60 ? (m % 60 ? c.durHM(h, m % 60) : c.unitH(h)) : c.unitM(m)
+}
 function rangeLabel(f: number, t: number) { return `${md(new Date(f * 1000))} – ${md(new Date(t * 1000))}` }
 /** unix seconds ↔ the local "YYYY-MM-DDTHH:mm" value of <input type=datetime-local>. */
 const toLocal = (ts: number) => { const d = new Date(ts * 1000); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}` }
@@ -220,17 +228,18 @@ function RangePicker({ from, to, onApply, onCancel }: { from: number; to: number
   const now = Math.floor(Date.now() / 1000)
   const min = now - KEEP
   const f = fromLocal(a), t = fromLocal(b)
-  const err = Number.isNaN(f) || Number.isNaN(t) ? '请填写开始和结束时间'
-    : f < min - 60 ? '开始时间最早为 30 天前'
-      : t > now + 60 ? '结束时间不能晚于现在'
-        : f >= t ? '开始时间必须早于结束时间' : ''
+  const L = tr(TR)
+  const err = Number.isNaN(f) || Number.isNaN(t) ? L.errFill
+    : f < min - 60 ? L.errMin
+      : t > now + 60 ? L.errMax
+        : f >= t ? L.errOrder : ''
   const day0 = (d = new Date()) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return Math.floor(x.getTime() / 1000) }
   const quick = [
-    { label: '今天', f: day0(), t: now },
-    { label: '昨天', f: day0() - 86400, t: day0() },
-    { label: '本周', f: (() => { const d = new Date(); const wd = (d.getDay() + 6) % 7; return day0() - wd * 86400 })(), t: now },
-    { label: '最近 3 天', f: now - 3 * 86400, t: now },
-    { label: '最近 30 天', f: min + 60, t: now },
+    { label: L.qToday, f: day0(), t: now },
+    { label: L.qYesterday, f: day0() - 86400, t: day0() },
+    { label: L.qWeek, f: (() => { const d = new Date(); const wd = (d.getDay() + 6) % 7; return day0() - wd * 86400 })(), t: now },
+    { label: L.q3d, f: now - 3 * 86400, t: now },
+    { label: L.q30d, f: min + 60, t: now },
   ]
   const inputCls = 'h-9 w-full rounded-[10px] border bg-base px-3 text-sm tabular outline-none transition-[border-color,box-shadow] duration-(--dur-1) focus:border-accent focus:ring-2 focus:ring-accent/25'
   return (
@@ -241,16 +250,16 @@ function RangePicker({ from, to, onApply, onCancel }: { from: number; to: number
             className="h-7 cursor-pointer rounded-full bg-overlay px-3 text-[13px] text-subtle outline-none transition-colors duration-(--dur-1) hover:text-text focus-visible:ring-2 focus-visible:ring-accent">{x.label}</button>
         ))}
       </div>
-      <label className="flex flex-col gap-1.5 text-[13px] font-medium text-subtle">开始
+      <label className="flex flex-col gap-1.5 text-[13px] font-medium text-subtle">{L.start}
         <input type="datetime-local" step={60} value={a} min={toLocal(min)} max={toLocal(now)} onChange={(e) => setA(e.target.value)} className={inputCls} />
       </label>
-      <label className="flex flex-col gap-1.5 text-[13px] font-medium text-subtle">结束
+      <label className="flex flex-col gap-1.5 text-[13px] font-medium text-subtle">{L.end}
         <input type="datetime-local" step={60} value={b} min={toLocal(min)} max={toLocal(now)} onChange={(e) => setB(e.target.value)} className={inputCls} />
       </label>
-      <div className={cx('min-h-4 text-xs', err ? 'text-bad' : 'text-muted')}>{err || `${rangeLabel(f, t)} · 共 ${dur(t - f)}`}</div>
+      <div className={cx('min-h-4 text-xs', err ? 'text-bad' : 'text-muted')}>{err || L.spanX(rangeLabel(f, t), dur(t - f))}</div>
       <div className="flex justify-end gap-2">
-        <Button size="sm" onPress={onCancel}>取消</Button>
-        <Button size="sm" variant="primary" type="submit" isDisabled={!!err}>应用</Button>
+        <Button size="sm" onPress={onCancel}>{tr(C).cancel}</Button>
+        <Button size="sm" variant="primary" type="submit" isDisabled={!!err}>{tr(C).apply}</Button>
       </div>
     </form>
   )

@@ -40,49 +40,49 @@ func checkMihomo(b []byte) error {
 		Rules         []string                  `yaml:"rules"`
 	}
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
-		return fmt.Errorf("YAML 解析失败: %v", err)
+		return fmt.Errorf("YAML parse error: %v", err)
 	}
 	known := map[string]bool{"DIRECT": true, "REJECT": true}
 	for _, p := range cfg.Proxies {
 		n, _ := p["name"].(string)
 		if known[n] {
-			return fmt.Errorf("节点名重复: %s", n)
+			return fmt.Errorf("Duplicate node name: %s", n)
 		}
 		known[n] = true
 	}
 	for _, g := range cfg.ProxyGroups {
 		if known[g.Name] {
-			return fmt.Errorf("分组名重复: %s", g.Name)
+			return fmt.Errorf("Duplicate group name: %s", g.Name)
 		}
 		known[g.Name] = true
 	}
 	for _, g := range cfg.ProxyGroups {
 		if len(g.Proxies) == 0 {
-			return fmt.Errorf("分组 %s 为空", g.Name)
+			return fmt.Errorf("Group %s is empty", g.Name)
 		}
 		for _, m := range g.Proxies {
 			if !known[m] {
-				return fmt.Errorf("分组 %s 引用了不存在的 %s", g.Name, m)
+				return fmt.Errorf("Group %s references missing %s", g.Name, m)
 			}
 		}
 	}
 	if len(cfg.Rules) == 0 || !strings.HasPrefix(cfg.Rules[len(cfg.Rules)-1], "MATCH,") {
-		return fmt.Errorf("rules 必须以 MATCH 结尾")
+		return fmt.Errorf("rules must end with MATCH")
 	}
 	for _, r := range cfg.Rules {
 		f := strings.Split(r, ",")
 		if len(f) < 2 {
-			return fmt.Errorf("规则格式错误: %s", r)
+			return fmt.Errorf("Malformed rule: %s", r)
 		}
 		tgt := f[len(f)-1]
 		if tgt == "no-resolve" {
 			tgt = f[len(f)-2]
 		}
 		if !known[tgt] {
-			return fmt.Errorf("规则目标不存在: %s", r)
+			return fmt.Errorf("Rule target doesn't exist: %s", r)
 		}
 		if f[0] == "RULE-SET" && cfg.RuleProviders[f[1]] == nil {
-			return fmt.Errorf("规则集未定义: %s", f[1])
+			return fmt.Errorf("Rule set not defined: %s", f[1])
 		}
 	}
 	return nil
@@ -118,62 +118,62 @@ func checkSingbox(b []byte) error {
 		} `json:"route"`
 	}
 	if err := json.Unmarshal(b, &cfg); err != nil {
-		return fmt.Errorf("JSON 解析失败: %v", err)
+		return fmt.Errorf("JSON parse error: %v", err)
 	}
 	outs, sets, servers := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, o := range cfg.Outbounds {
 		if o.Tag == "" || outs[o.Tag] {
-			return fmt.Errorf("出站 tag 为空或重复: %q", o.Tag)
+			return fmt.Errorf("Outbound tag is empty or duplicated: %q", o.Tag)
 		}
 		outs[o.Tag] = true
 	}
 	for _, o := range cfg.Outbounds {
 		if (o.Type == "selector" || o.Type == "urltest") && len(o.Outbounds) == 0 {
-			return fmt.Errorf("分组 %s 为空", o.Tag)
+			return fmt.Errorf("Group %s is empty", o.Tag)
 		}
 		for _, m := range o.Outbounds {
 			if !outs[m] {
-				return fmt.Errorf("分组 %s 引用了不存在的出站 %s", o.Tag, m)
+				return fmt.Errorf("Group %s references missing outbound %s", o.Tag, m)
 			}
 		}
 	}
 	for _, s := range cfg.Route.RuleSet {
 		if sets[s.Tag] {
-			return fmt.Errorf("规则集 tag 重复: %s", s.Tag)
+			return fmt.Errorf("Duplicate rule set tag: %s", s.Tag)
 		}
 		sets[s.Tag] = true
 	}
 	for _, r := range cfg.Route.Rules {
 		if r.Outbound != "" && !outs[r.Outbound] {
-			return fmt.Errorf("路由规则引用了不存在的出站 %s", r.Outbound)
+			return fmt.Errorf("A route rule references missing outbound %s", r.Outbound)
 		}
 		for _, t := range r.RuleSet {
 			if !sets[t] {
-				return fmt.Errorf("规则集未定义: %s", t)
+				return fmt.Errorf("Rule set not defined: %s", t)
 			}
 		}
 	}
 	if cfg.Route.Final != "" && !outs[cfg.Route.Final] {
-		return fmt.Errorf("route.final 不存在: %s", cfg.Route.Final)
+		return fmt.Errorf("route.final doesn't exist: %s", cfg.Route.Final)
 	}
 	for _, s := range cfg.DNS.Servers {
 		servers[s.Tag] = true
 		if s.Detour != "" && !outs[s.Detour] {
-			return fmt.Errorf("DNS %s 的 detour 不存在", s.Tag)
+			return fmt.Errorf("The detour of DNS server %s doesn't exist", s.Tag)
 		}
 	}
 	for _, r := range cfg.DNS.Rules {
 		if !servers[r.Server] {
-			return fmt.Errorf("DNS 规则引用了不存在的服务器 %s", r.Server)
+			return fmt.Errorf("A DNS rule references missing server %s", r.Server)
 		}
 		for _, t := range r.RuleSet {
 			if !sets[t] {
-				return fmt.Errorf("DNS 规则集未定义: %s", t)
+				return fmt.Errorf("DNS rule set not defined: %s", t)
 			}
 		}
 	}
 	if cfg.DNS.Final != "" && !servers[cfg.DNS.Final] {
-		return fmt.Errorf("dns.final 不存在: %s", cfg.DNS.Final)
+		return fmt.Errorf("dns.final doesn't exist: %s", cfg.DNS.Final)
 	}
 	return nil
 }
@@ -189,14 +189,14 @@ func SurgeSections(s string) (map[string][]string, error) {
 		}
 		if strings.HasPrefix(ln, "[") && strings.HasSuffix(ln, "]") {
 			if _, dup := sections[ln]; dup {
-				return nil, fmt.Errorf("段重复: %s", ln)
+				return nil, fmt.Errorf("Duplicate section: %s", ln)
 			}
 			cur = ln
 			sections[cur] = nil
 			continue
 		}
 		if cur == "" {
-			return nil, fmt.Errorf("内容不在任何段内: %s", ln)
+			return nil, fmt.Errorf("Content outside any section: %s", ln)
 		}
 		sections[cur] = append(sections[cur], ln)
 	}
@@ -210,7 +210,7 @@ func checkSurge(b []byte) error {
 	}
 	for _, s := range []string{"[General]", "[Proxy]", "[Proxy Group]", "[Rule]"} {
 		if _, ok := secs[s]; !ok {
-			return fmt.Errorf("缺少 %s 段", s)
+			return fmt.Errorf("Missing %s section", s)
 		}
 	}
 	names := map[string]bool{"DIRECT": true, "REJECT": true}
@@ -218,7 +218,7 @@ func checkSurge(b []byte) error {
 		for _, ln := range secs[sec] {
 			n, _, ok := strings.Cut(ln, " = ")
 			if !ok {
-				return fmt.Errorf("%s 行格式错误: %s", sec, ln)
+				return fmt.Errorf("Malformed %s line: %s", sec, ln)
 			}
 			names[n] = true
 		}
@@ -227,13 +227,13 @@ func checkSurge(b []byte) error {
 		_, rest, _ := strings.Cut(ln, " = ")
 		for _, m := range strings.Split(rest, ", ")[1:] {
 			if !strings.Contains(m, "=") && !names[m] {
-				return fmt.Errorf("分组成员不存在: %q", m)
+				return fmt.Errorf("Group member doesn't exist: %q", m)
 			}
 		}
 	}
 	rules := secs["[Rule]"]
 	if len(rules) == 0 || !strings.HasPrefix(rules[len(rules)-1], "FINAL,") {
-		return fmt.Errorf("[Rule] 必须以 FINAL 结尾")
+		return fmt.Errorf("[Rule] must end with FINAL")
 	}
 	for _, ln := range rules {
 		f := strings.Split(ln, ",")
@@ -242,7 +242,7 @@ func checkSurge(b []byte) error {
 			tgt = f[len(f)-2]
 		}
 		if !names[tgt] {
-			return fmt.Errorf("规则目标不存在: %s", ln)
+			return fmt.Errorf("Rule target doesn't exist: %s", ln)
 		}
 	}
 	return nil
@@ -271,7 +271,7 @@ func Check(p *Profile) (map[string][]string, error) {
 	n := 0
 	for c, ct := range p.Clients {
 		if _, ok := ClientCaps[c]; !ok {
-			return nil, fmt.Errorf("未知客户端 %s", c)
+			return nil, fmt.Errorf("Unknown client %s", c)
 		}
 		if !ct.Enabled {
 			continue
@@ -282,12 +282,12 @@ func Check(p *Profile) (map[string][]string, error) {
 			return nil, fmt.Errorf("%s: %v", ClientNames[c], err)
 		}
 		if err := ValidateOutput(c, r.Body); err != nil {
-			return nil, fmt.Errorf("%s 输出无效: %v", ClientNames[c], err)
+			return nil, fmt.Errorf("Invalid %s output: %v", ClientNames[c], err)
 		}
 		out[c] = r.Warnings
 	}
 	if n == 0 {
-		return nil, fmt.Errorf("至少启用一个客户端模板")
+		return nil, fmt.Errorf("Enable at least one client template")
 	}
 	return out, nil
 }

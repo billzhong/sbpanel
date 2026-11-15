@@ -1,3 +1,6 @@
+import { locale, tr } from '../i18n'
+import { C } from '../i18n/common'
+
 const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
 
 export function bytes(n: number, digits = 1): string {
@@ -10,7 +13,7 @@ export function bytes(n: number, digits = 1): string {
 export const rate = (n: number) => bytes(n) + '/s'
 
 export function num(n: number): string {
-  return new Intl.NumberFormat('zh-CN').format(n)
+  return new Intl.NumberFormat(locale()).format(n)
 }
 
 export function pct(a: number, b: number): number {
@@ -20,27 +23,29 @@ export function pct(a: number, b: number): number {
 export function dateTime(ts: number): string {
   if (!ts) return '—'
   const d = new Date(ts * 1000)
-  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+  return d.toLocaleString(locale(), { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 export function date(ts: number): string {
   if (!ts) return '—'
-  return new Date(ts * 1000).toLocaleDateString('zh-CN')
+  return new Date(ts * 1000).toLocaleDateString(locale())
 }
 
 export function ago(ts: number): string {
-  if (!ts) return '从未'
+  const t = tr(C)
+  if (!ts) return t.never_
   const s = Math.max(0, Date.now() / 1000 - ts)
-  if (s < 60) return Math.floor(s) + ' 秒前'
-  if (s < 3600) return Math.floor(s / 60) + ' 分钟前'
-  if (s < 86400) return Math.floor(s / 3600) + ' 小时前'
-  return Math.floor(s / 86400) + ' 天前'
+  if (s < 60) return t.secAgo(Math.floor(s))
+  if (s < 3600) return t.minAgo(Math.floor(s / 60))
+  if (s < 86400) return t.hrAgo(Math.floor(s / 3600))
+  return t.dayAgo(Math.floor(s / 86400))
 }
 
 export function duration(sec: number): string {
   if (!sec) return '—'
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60)
-  return d > 0 ? `${d} 天 ${h} 小时` : h > 0 ? `${h} 小时 ${m} 分` : `${m} 分`
+  const t = tr(C)
+  return d > 0 ? t.durDH(d, h) : h > 0 ? t.durHM(h, m) : t.durM(m)
 }
 
 export function axisTime(ts: number, step: number): string {
@@ -58,14 +63,20 @@ export function parseSize(s: string): number {
   return Math.round(parseFloat(m[1]) * mult[m[2].toUpperCase()])
 }
 
-/** "3 天后" / "已过期 2 天" / "永久" for an expiry timestamp. */
+/** "in 3 days" / "expired 2 days ago" / "Never" for an expiry timestamp. */
 export function expiresIn(ts: number): string {
-  if (!ts) return '永久'
+  const t = tr(C)
+  if (!ts) return t.forever
   const s = ts - Date.now() / 1000
   const a = Math.abs(s)
-  const unit = a >= 86400 ? `${Math.floor(a / 86400)} 天` : a >= 3600 ? `${Math.floor(a / 3600)} 小时` : `${Math.max(1, Math.floor(a / 60))} 分钟`
-  return s >= 0 ? `${unit}后` : `已过期 ${unit}`
+  const unit = a >= 86400 ? t.unitD(Math.floor(a / 86400)) : a >= 3600 ? t.unitH(Math.floor(a / 3600)) : t.unitM(Math.max(1, Math.floor(a / 60)))
+  return s >= 0 ? t.inX(unit) : t.expiredX(unit)
 }
 
 export const DAY = 86400
 export const GB = 1024 ** 3
+
+/** Full local date-time for tooltips. */
+export function fullTime(ts: number): string {
+  return ts ? new Date(ts * 1000).toLocaleString(locale(), { hour12: false }) : '—'
+}

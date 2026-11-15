@@ -62,6 +62,24 @@ func TestSubscriptionThemes(t *testing.T) {
 	if !strings.Contains(body, `id="sbp-data"`) || !strings.Contains(body, "theme-user") {
 		t.Fatal("data not embedded")
 	}
+	// language: English by default, the browser's zh* locale, or ?lang= (the theme's switcher)
+	if !strings.Contains(body, `<html lang="en"`) || !strings.Contains(body, `"lang":"en"`) || resp.Header.Get("Content-Language") != "en" {
+		t.Fatalf("default language: %s", resp.Header.Get("Content-Language"))
+	}
+	req, _ := http.NewRequest("GET", e.api.base+path+"?format=html", nil)
+	req.Header.Set("Accept-Language", "zh-TW,zh;q=0.9,en;q=0.5")
+	zr, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zb0, _ := io.ReadAll(zr.Body)
+	zr.Body.Close()
+	if !strings.Contains(string(zb0), `<html lang="zh-CN"`) || !strings.Contains(string(zb0), `"lang":"zh"`) {
+		t.Fatal("zh-TW browser should get the Chinese page")
+	}
+	if _, body := get(path + "?format=html&lang=zh&profile=x"); !strings.Contains(body, `"locale":"zh-CN"`) {
+		t.Fatal("?lang=zh")
+	}
 
 	// upload a minimal theme, activate it, and render with it
 	var zb bytes.Buffer
@@ -80,7 +98,7 @@ func TestSubscriptionThemes(t *testing.T) {
 	fw, _ := mw.CreateFormFile("file", "mini.zip")
 	fw.Write(zb.Bytes())
 	mw.Close()
-	req, _ := http.NewRequest("POST", e.api.base+"/api/sub-themes", &mb)
+	req, _ = http.NewRequest("POST", e.api.base+"/api/sub-themes", &mb)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	up, err := e.api.hc.Do(req)
 	if err != nil || up.StatusCode != 200 {

@@ -108,7 +108,7 @@ func surgeSections(c *Compiled, opts map[string]string) map[string]string {
 				geo = Catalog[r.Set.Remote.Catalog].SurgeGeoIP
 			}
 			if len(refs) == 0 && geo == "" {
-				c.warn("规则集 %s 没有 Surge 源，已跳过", r.Set.Name)
+				c.warn("Rule set %s has no Surge source; skipped", r.Set.Name)
 			}
 			for _, ref := range refs {
 				rs.WriteString("RULE-SET," + ref.URL + "," + r.Target + "\n")
@@ -131,7 +131,7 @@ func surgeSections(c *Compiled, opts map[string]string) map[string]string {
 					}
 					rs.WriteString(s + "\n")
 				case "domain_regex", "geosite", "network":
-					c.warn("Surge 不支持 %s 匹配，已跳过 %s", m.Type, v)
+					c.warn("Surge doesn't support %s matching; skipped %s", m.Type, v)
 				case "geoip":
 					rs.WriteString("GEOIP," + strings.ToUpper(v) + "," + r.Target + "\n")
 				default:

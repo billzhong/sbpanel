@@ -4,6 +4,8 @@ import type { EChartsType } from './echarts'
 import { bodyFont, cssColor, esc, reducedMotion, seriesColor, useChartTheme } from './theme'
 export { preloadCharts } from './EChart'
 import { bytes } from '../../lib/fmt'
+import { locale, tr } from '../../i18n'
+import { C } from '../../i18n/common'
 
 export type ChartSeries = { key: string; label: string; values: number[]; color?: string }
 
@@ -44,7 +46,7 @@ function classify(prev: Snap | null, next: Snap): Kind {
   if (prev.stacked !== next.stacked) return 'swap'
   const ids = (s: Snap) => s.series.map((x) => x.key).join('\u0000')
   if (ids(prev) !== ids(next)) {
-    // Mostly-new series (按用户 → 按节点): collapsing everything while the rest grows dips to empty mid-way.
+    // Mostly-new series (by user → by node): collapsing everything while the rest grows dips to empty mid-way.
     const kept = next.series.filter((s) => prev.series.some((p) => p.key === s.key)).length
     return kept * 2 >= Math.max(prev.series.length, next.series.length) && kept > 0 ? 'set' : 'swap'
   }
@@ -152,7 +154,7 @@ export function TimeSeriesChart({ times, step, series, stacked = false, height =
         axisLabel: {
           color: tok('muted'), fontSize: 11, hideOverlap: true,
           // Level formatter: day boundaries read as dates (7d / 30d), intra-day ticks as times.
-          formatter: { year: '{yyyy}', month: '{M}月', day: '{M}/{d}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', millisecond: '{HH}:{mm}', none: '{M}/{d} {HH}:{mm}' },
+          formatter: { year: '{yyyy}', month: tr(C).monthFmt, day: '{M}/{d}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', millisecond: '{HH}:{mm}', none: '{M}/{d} {HH}:{mm}' },
         },
       },
       yAxis: {
@@ -170,7 +172,7 @@ export function TimeSeriesChart({ times, step, series, stacked = false, height =
           const L = live.current
           const k = L.times.indexOf(Math.round((ps[0]?.axisValue ?? 0) / 1000))
           if (k < 0) return ''
-          const head = `<div style="font-weight:500;margin-bottom:4px" class="tabular">${esc(new Date(L.times[k] * 1000).toLocaleString('zh-CN', { hour12: false }))}</div>`
+          const head = `<div style="font-weight:500;margin-bottom:4px" class="tabular">${esc(new Date(L.times[k] * 1000).toLocaleString(locale(), { hour12: false }))}</div>`
           return head + L.series.map((s, i) => `<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px 0">`
             + `<span style="display:inline-flex;align-items:center;gap:6px;color:var(--subtle);min-width:0"><i style="flex:none;width:8px;height:8px;border-radius:2px;background:${esc(color(s, i))}"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${esc(s.label)}</span></span>`
             + `<span class="tabular" style="white-space:nowrap">${bytes(s.values[k] ?? 0)}<span style="color:var(--muted);margin-left:4px">(${bytes((s.values[k] ?? 0) / L.step)}/s)</span></span></div>`).join('')
@@ -295,7 +297,7 @@ export function TimeSeriesChart({ times, step, series, stacked = false, height =
   return (
     <div className="relative w-full select-none">
       {series.length > 1 && (
-        <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-subtle" aria-label="图例">
+        <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-subtle" aria-label={tr(C).legend}>
           {series.map((s, i) => (
             <span key={s.key} className="inline-flex animate-content-in items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: s.color ?? seriesColor(i) }} />
@@ -304,7 +306,7 @@ export function TimeSeriesChart({ times, step, series, stacked = false, height =
           ))}
         </div>
       )}
-      <div ref={host} role="img" aria-label={`流量趋势，共 ${bytes(total)}${onBrush ? '，拖动可放大时间范围' : ''}`}
+      <div ref={host} role="img" aria-label={tr(C).trafficTrend(bytes(total), !!onBrush)}
         className="relative" style={{ height, cursor: onBrush ? 'crosshair' : undefined }}
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => endBrush(true)} onPointerCancel={() => endBrush(false)}>
         <EChart height={height} onReady={(c) => { chart.current = c; applied.current = ''; render() }} />
@@ -316,7 +318,7 @@ export function TimeSeriesChart({ times, step, series, stacked = false, height =
         )}
         <div className="pointer-events-none absolute grid place-items-center text-[13px] text-muted"
           style={{ left: GRID.left, right: GRID.right, top: GRID.top, bottom: GRID.bottom, opacity: total === 0 ? 1 : 0, transition: 'opacity var(--dur-3) var(--ease-std)' }}>
-          {empty ?? '暂无流量'}
+          {empty ?? tr(C).noTraffic}
         </div>
       </div>
     </div>

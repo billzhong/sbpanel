@@ -107,13 +107,18 @@ func (t *subTheme) assetBase() string {
 	return "/s/_t/" + url.PathEscape(t.ID+"@"+t.Version)
 }
 
-// i18n picks zh-CN, then en, then any value from a string-or-map manifest field.
-func i18n(v any) string {
+// locText resolves a string-or-map manifest field ({"en": "…", "zh-CN": "…"}) for lang (en / zh):
+// the language's own keys first, then the other language, then any value.
+func locText(lang string, v any) string {
+	order := []string{"en", "en-US", "en-GB", "zh-CN", "zh", "zh-Hans"}
+	if lang == langZH {
+		order = []string{"zh-CN", "zh", "zh-Hans", "zh-TW", "zh-HK", "zh-Hant", "en", "en-US", "en-GB"}
+	}
 	switch x := v.(type) {
 	case string:
 		return x
 	case map[string]any:
-		for _, k := range []string{"zh-CN", "zh", "en"} {
+		for _, k := range order {
 			if s, ok := x[k].(string); ok && s != "" {
 				return s
 			}
@@ -151,29 +156,29 @@ func cleanThemePath(p string) string {
 
 func (mf *themeManifest) validate(has func(string) bool) error {
 	if mf.API != themeAPIVersion {
-		return fmt.Errorf("不支持的 api 版本 %d（当前为 %d）", mf.API, themeAPIVersion)
+		return fmt.Errorf("Unsupported api version %d (current: %d)", mf.API, themeAPIVersion)
 	}
 	if !themeIDRe.MatchString(mf.ID) {
-		return errors.New("id 只能包含小写字母、数字、- 和 _，长度 2-40")
+		return errors.New("id may contain lowercase letters, digits, - and _ (2-40 characters)")
 	}
-	if i18n(mf.Name) == "" {
-		return errors.New("缺少 name")
+	if locText(langEN, mf.Name) == "" {
+		return errors.New("Missing name")
 	}
 	if !themeVersionRe.MatchString(mf.Version) {
-		return errors.New("version 格式无效")
+		return errors.New("Invalid version")
 	}
 	e := mf.Entry
 	if e == "" {
 		e = "index.html"
 	}
 	if cleanThemePath(e) == "" || !strings.HasSuffix(e, ".html") || !has(cleanThemePath(e)) {
-		return fmt.Errorf("入口文件 %s 不存在", e)
+		return fmt.Errorf("Entry file %s not found", e)
 	}
 	if mf.Preview != "" && (cleanThemePath(mf.Preview) == "" || !has(cleanThemePath(mf.Preview))) {
-		return fmt.Errorf("预览图 %s 不存在", mf.Preview)
+		return fmt.Errorf("Preview image %s not found", mf.Preview)
 	}
 	if len(mf.Settings) > themeMaxSettings {
-		return fmt.Errorf("设置项最多 %d 个", themeMaxSettings)
+		return fmt.Errorf("At most %d settings", themeMaxSettings)
 	}
 	seen := map[string]bool{}
 	for i, s := range mf.Settings {
@@ -182,15 +187,15 @@ func (mf *themeManifest) validate(has func(string) bool) error {
 			continue
 		case "text", "textarea", "url", "color", "number", "switch", "select", "multiselect":
 		default:
-			return fmt.Errorf("设置项 #%d 类型 %q 不支持", i+1, s.Type)
+			return fmt.Errorf("Setting #%d: unsupported type %q", i+1, s.Type)
 		}
 		if !themeKeyRe.MatchString(s.Key) || seen[s.Key] {
-			return fmt.Errorf("设置项 #%d 的 key %q 无效或重复", i+1, s.Key)
+			return fmt.Errorf("Setting #%d: key %q is invalid or duplicated", i+1, s.Key)
 		}
 		seen[s.Key] = true
 		if s.Type == "select" || s.Type == "multiselect" {
-			if _, err := s.options(nil); err != nil {
-				return fmt.Errorf("设置项 %s：%v", s.Key, err)
+			if _, err := s.options(nil, langEN); err != nil {
+				return fmt.Errorf("Setting %s: %v", s.Key, err)
 			}
 		}
 	}
@@ -198,28 +203,28 @@ func (mf *themeManifest) validate(has func(string) bool) error {
 }
 
 // options resolves the option list; "$clients" expands to the built-in client list.
-func (s themeSetting) options(clients []themeOption) ([]themeOption, error) {
+func (s themeSetting) options(clients []themeOption, lang string) ([]themeOption, error) {
 	if len(s.Options) == 0 {
-		return nil, errors.New("缺少 options")
+		return nil, errors.New("Missing options")
 	}
 	var ref string
 	if json.Unmarshal(s.Options, &ref) == nil {
 		if ref == "$clients" {
 			return clients, nil
 		}
-		return nil, fmt.Errorf("未知的 options 引用 %q", ref)
+		return nil, fmt.Errorf("Unknown options reference %q", ref)
 	}
 	var raw []struct {
 		Value any `json:"value"`
 		Label any `json:"label"`
 	}
 	if err := json.Unmarshal(s.Options, &raw); err != nil || len(raw) == 0 {
-		return nil, errors.New("options 格式无效")
+		return nil, errors.New("Invalid options")
 	}
 	out := make([]themeOption, 0, len(raw))
 	for _, o := range raw {
 		v := fmt.Sprint(o.Value)
-		l := i18n(o.Label)
+		l := locText(lang, o.Label)
 		if l == "" {
 			l = v
 		}
@@ -240,7 +245,7 @@ func readManifest(fsys fs.FS) (themeManifest, error) {
 	var mf themeManifest
 	f, err := fsys.Open(themeManifestName)
 	if err != nil {
-		return mf, errors.New("缺少 " + themeManifestName)
+		return mf, fmt.Errorf("Missing %s", themeManifestName)
 	}
 	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, themeMaxManifest+1))
@@ -248,10 +253,10 @@ func readManifest(fsys fs.FS) (themeManifest, error) {
 		return mf, err
 	}
 	if len(b) > themeMaxManifest {
-		return mf, errors.New(themeManifestName + " 过大")
+		return mf, fmt.Errorf("%s is too large", themeManifestName)
 	}
 	if err := json.Unmarshal(b, &mf); err != nil {
-		return mf, fmt.Errorf("%s 格式错误：%v", themeManifestName, err)
+		return mf, fmt.Errorf("Invalid %s: %v", themeManifestName, err)
 	}
 	return mf, nil
 }
@@ -275,7 +280,7 @@ func (m *Master) loadTheme(id string) (*subTheme, error) {
 		return builtinTheme(), nil
 	}
 	if !themeIDRe.MatchString(id) {
-		return nil, errors.New("主题不存在")
+		return nil, errors.New("Theme not found")
 	}
 	dir := filepath.Join(m.themesDir(), id)
 	fsys := os.DirFS(dir)
@@ -284,7 +289,7 @@ func (m *Master) loadTheme(id string) (*subTheme, error) {
 		return nil, err
 	}
 	if mf.ID != id {
-		return nil, errors.New("主题目录与 id 不一致")
+		return nil, errors.New("Theme folder doesn't match its id")
 	}
 	return &subTheme{themeManifest: mf, fsys: fsys}, nil
 }
@@ -373,7 +378,7 @@ func (s themeSetting) coerce(v any, clients []themeOption) (any, error) {
 	case "text", "textarea", "url", "color":
 		str, ok := v.(string)
 		if !ok {
-			return nil, fmt.Errorf("%s 需要文本", label)
+			return nil, fmt.Errorf("%s must be text", label)
 		}
 		str = strings.TrimSpace(str)
 		limit := s.MaxLength
@@ -381,13 +386,13 @@ func (s themeSetting) coerce(v any, clients []themeOption) (any, error) {
 			limit = map[string]int{"text": 500, "textarea": 4000, "url": 1000, "color": 7}[s.Type]
 		}
 		if utf8.RuneCountInString(str) > limit {
-			return nil, fmt.Errorf("%s 最多 %d 个字符", label, limit)
+			return nil, fmt.Errorf("%s can be at most %d characters", label, limit)
 		}
 		if s.Type == "url" && str != "" && !strings.HasPrefix(str, "https://") && !strings.HasPrefix(str, "http://") {
-			return nil, fmt.Errorf("%s 需以 http:// 或 https:// 开头", label)
+			return nil, fmt.Errorf("%s must start with http:// or https://", label)
 		}
 		if s.Type == "color" && str != "" && !hexColorRe.MatchString(str) {
-			return nil, fmt.Errorf("%s 需要 #RRGGBB 颜色", label)
+			return nil, fmt.Errorf("%s must be a #RRGGBB color", label)
 		}
 		return str, nil
 	case "number":
@@ -400,26 +405,26 @@ func (s themeSetting) coerce(v any, clients []themeOption) (any, error) {
 		case string:
 			var err error
 			if f, err = strconv.ParseFloat(strings.TrimSpace(x), 64); err != nil {
-				return nil, fmt.Errorf("%s 需要数字", label)
+				return nil, fmt.Errorf("%s must be a number", label)
 			}
 		default:
-			return nil, fmt.Errorf("%s 需要数字", label)
+			return nil, fmt.Errorf("%s must be a number", label)
 		}
 		if (s.Min != nil && f < *s.Min) || (s.Max != nil && f > *s.Max) {
-			return nil, fmt.Errorf("%s 超出范围", label)
+			return nil, fmt.Errorf("%s is out of range", label)
 		}
 		return f, nil
 	case "switch":
 		b, ok := v.(bool)
 		if !ok {
-			return nil, fmt.Errorf("%s 需要开关值", label)
+			return nil, fmt.Errorf("%s must be true or false", label)
 		}
 		return b, nil
 	case "select":
 		str, ok := v.(string)
-		opts, _ := s.options(clients)
+		opts, _ := s.options(clients, langEN)
 		if !ok || !hasOption(opts, str) {
-			return nil, fmt.Errorf("%s 的值不在可选项中", label)
+			return nil, fmt.Errorf("%s is not one of the options", label)
 		}
 		return str, nil
 	case "multiselect":
@@ -433,20 +438,20 @@ func (s themeSetting) coerce(v any, clients []themeOption) (any, error) {
 			}
 		}
 		if !ok {
-			return nil, fmt.Errorf("%s 需要列表", label)
+			return nil, fmt.Errorf("%s must be a list", label)
 		}
-		opts, _ := s.options(clients)
+		opts, _ := s.options(clients, langEN)
 		out := []string{}
 		for _, x := range arr {
 			str, ok := x.(string)
 			if !ok || !hasOption(opts, str) {
-				return nil, fmt.Errorf("%s 包含无效选项", label)
+				return nil, fmt.Errorf("%s contains an invalid option", label)
 			}
 			out = append(out, str)
 		}
 		return out, nil
 	}
-	return nil, fmt.Errorf("%s 类型未知", label)
+	return nil, fmt.Errorf("%s has an unknown type", label)
 }
 
 func hasOption(opts []themeOption, v string) bool {
@@ -496,7 +501,7 @@ func inspectThemeZip(data []byte) (themeManifest, map[string]*zip.File, error) {
 	var mf themeManifest
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return mf, nil, errors.New("不是有效的 zip 文件")
+		return mf, nil, errors.New("Not a valid zip file")
 	}
 	prefix := ""
 	rootManifest := false
@@ -514,7 +519,7 @@ func inspectThemeZip(data []byte) (themeManifest, map[string]*zip.File, error) {
 	case len(nested) == 1:
 		prefix = nested[0]
 	default:
-		return mf, nil, errors.New("压缩包根目录缺少 " + themeManifestName)
+		return mf, nil, fmt.Errorf("The zip root is missing %s", themeManifestName)
 	}
 	files := map[string]*zip.File{}
 	var total uint64
@@ -527,28 +532,28 @@ func inspectThemeZip(data []byte) (themeManifest, map[string]*zip.File, error) {
 			continue
 		}
 		if f.Mode()&fs.ModeSymlink != 0 || f.Mode()&fs.ModeType != 0 {
-			return mf, nil, fmt.Errorf("不允许链接或特殊文件：%s", n)
+			return mf, nil, fmt.Errorf("Links and special files are not allowed: %s", n)
 		}
 		if !strings.HasPrefix(n, prefix) {
-			return mf, nil, fmt.Errorf("文件不在主题目录内：%s", n)
+			return mf, nil, fmt.Errorf("File is outside the theme folder: %s", n)
 		}
 		rel := cleanThemePath(strings.TrimPrefix(n, prefix))
 		if rel == "" || rel != strings.TrimPrefix(n, prefix) {
-			return mf, nil, fmt.Errorf("非法文件路径：%s", n)
+			return mf, nil, fmt.Errorf("Invalid file path: %s", n)
 		}
 		if f.UncompressedSize64 > themeMaxFileSize {
-			return mf, nil, fmt.Errorf("文件过大（单个上限 %d MB）：%s", themeMaxFileSize>>20, rel)
+			return mf, nil, fmt.Errorf("File too large (max %d MB each): %s", themeMaxFileSize>>20, rel)
 		}
 		total += f.UncompressedSize64
 		if total > themeMaxTotalSize {
-			return mf, nil, fmt.Errorf("解压后总大小超过 %d MB", themeMaxTotalSize>>20)
+			return mf, nil, fmt.Errorf("Unpacked size exceeds %d MB", themeMaxTotalSize>>20)
 		}
 		if _, dup := files[rel]; dup {
-			return mf, nil, fmt.Errorf("重复的文件：%s", rel)
+			return mf, nil, fmt.Errorf("Duplicate file: %s", rel)
 		}
 		files[rel] = f
 		if len(files) > themeMaxFiles {
-			return mf, nil, fmt.Errorf("文件数超过 %d 个", themeMaxFiles)
+			return mf, nil, fmt.Errorf("More than %d files", themeMaxFiles)
 		}
 	}
 	mfFile := files[themeManifestName]
@@ -559,13 +564,13 @@ func inspectThemeZip(data []byte) (themeManifest, map[string]*zip.File, error) {
 	b, err := io.ReadAll(io.LimitReader(rc, themeMaxManifest+1))
 	rc.Close()
 	if err != nil || len(b) > themeMaxManifest {
-		return mf, nil, errors.New(themeManifestName + " 读取失败或过大")
+		return mf, nil, fmt.Errorf("%s is unreadable or too large", themeManifestName)
 	}
 	if err := json.Unmarshal(b, &mf); err != nil {
-		return mf, nil, fmt.Errorf("%s 格式错误：%v", themeManifestName, err)
+		return mf, nil, fmt.Errorf("Invalid %s: %v", themeManifestName, err)
 	}
 	if mf.ID == defaultThemeID {
-		return mf, nil, errors.New("id \"default\" 是内置主题保留的")
+		return mf, nil, errors.New("id \"default\" is reserved for the built-in theme")
 	}
 	if err := mf.validate(func(p string) bool { _, ok := files[p]; return ok }); err != nil {
 		return mf, nil, err
@@ -588,13 +593,13 @@ func (m *Master) installTheme(data []byte) (themeManifest, error) {
 	for rel, f := range files {
 		dst := filepath.Join(tmp, filepath.FromSlash(rel))
 		if !strings.HasPrefix(dst, tmp+string(os.PathSeparator)) {
-			return mf, fmt.Errorf("非法文件路径：%s", rel)
+			return mf, fmt.Errorf("Invalid file path: %s", rel)
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return mf, err
 		}
 		if err := extractZipFile(f, dst); err != nil {
-			return mf, fmt.Errorf("解压 %s 失败：%v", rel, err)
+			return mf, fmt.Errorf("Failed to extract %s: %v", rel, err)
 		}
 	}
 	final := filepath.Join(root, mf.ID)
@@ -627,7 +632,7 @@ func extractZipFile(f *zip.File, dst string) error {
 		err = cerr
 	}
 	if err == nil && n > themeMaxFileSize {
-		err = errors.New("文件过大")
+		err = errors.New("File too large")
 	}
 	return err
 }
@@ -693,7 +698,7 @@ func newNonce() string {
 
 // renderTheme writes the theme's entry page with the data object embedded. csp is themeCSP plus
 // frame-ancestors; the per-response nonce is added for inlined scripts.
-func renderTheme(w http.ResponseWriter, t *subTheme, data any, frameAncestors string) error {
+func renderTheme(w http.ResponseWriter, t *subTheme, data subPageData, frameAncestors string) error {
 	b, err := fs.ReadFile(t.fsys, t.entry())
 	if err != nil {
 		return err
@@ -706,10 +711,13 @@ func renderTheme(w http.ResponseWriter, t *subTheme, data any, frameAncestors st
 	page := inlineAssets(t, string(b), nonce)
 	page = strings.Replace(page, "%SBP_DATA%", `<script id="sbp-data" type="application/json">`+string(js)+`</script>`, 1)
 	page = strings.ReplaceAll(page, "%SBP_ASSETS%", t.assetBase())
+	page = strings.ReplaceAll(page, "%SBP_LANG%", data.Locale)
 	csp := strings.Replace(themeCSP, "script-src 'self'", "script-src 'self' 'nonce-"+nonce+"'", 1) + "; frame-ancestors " + frameAncestors
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Cache-Control", "no-store")
+	h.Set("Content-Language", data.Locale)
+	h.Set("Vary", "Accept-Language")
 	setThemeHeaders(h, csp)
 	_, err = io.WriteString(w, page)
 	return err
@@ -763,8 +771,8 @@ type themeInfo struct {
 	Settings    map[string]any `json:"settings"`
 }
 
-func (m *Master) themeInfo(t *subTheme, active string) themeInfo {
-	ti := themeInfo{ID: t.ID, Name: i18n(t.Name), Version: t.Version, Author: t.Author, Description: i18n(t.Description),
+func (m *Master) themeInfo(t *subTheme, active, lang string) themeInfo {
+	ti := themeInfo{ID: t.ID, Name: locText(lang, t.Name), Version: t.Version, Author: t.Author, Description: locText(lang, t.Description),
 		Homepage: t.Homepage, License: t.License, Builtin: t.builtin, Active: t.ID == active, Schema: []any{}, Settings: m.themeSettings(t, nil)}
 	if p := cleanThemePath(t.Preview); p != "" {
 		if _, err := fs.Stat(t.fsys, p); err == nil {
@@ -774,7 +782,7 @@ func (m *Master) themeInfo(t *subTheme, active string) themeInfo {
 	}
 	opts := clientOptions()
 	for _, s := range t.Settings {
-		item := map[string]any{"type": s.Type, "label": i18n(s.Label), "help": i18n(s.Help)}
+		item := map[string]any{"type": s.Type, "label": locText(lang, s.Label), "help": locText(lang, s.Help)}
 		if s.Key != "" {
 			item["key"] = s.Key
 			item["default"] = s.Default
@@ -789,7 +797,7 @@ func (m *Master) themeInfo(t *subTheme, active string) themeInfo {
 			item["max"] = *s.Max
 		}
 		if s.Type == "select" || s.Type == "multiselect" {
-			o, _ := s.options(opts)
+			o, _ := s.options(opts, lang)
 			item["options"] = o
 		}
 		ti.Schema = append(ti.Schema, item)
@@ -801,7 +809,7 @@ func (m *Master) apiSubThemes(w http.ResponseWriter, r *http.Request) {
 	active := m.activeTheme().ID
 	out := []themeInfo{}
 	for _, t := range m.listThemes() {
-		out = append(out, m.themeInfo(t, active))
+		out = append(out, m.themeInfo(t, active, reqLang(r)))
 	}
 	writeJSON(w, 200, out)
 }
@@ -809,13 +817,13 @@ func (m *Master) apiSubThemes(w http.ResponseWriter, r *http.Request) {
 func (m *Master) apiUploadSubTheme(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, themeMaxTotalSize+(1<<20))
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		writeErr(w, 400, "上传失败：文件需为不超过 20 MB 的 zip")
+		writeErr(w, 400, "Upload failed: the file must be a zip of at most 20 MB")
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
 	f, _, err := r.FormFile("file")
 	if err != nil {
-		writeErr(w, 400, "缺少 file")
+		writeErr(w, 400, "Missing file")
 		return
 	}
 	defer f.Close()
@@ -830,7 +838,7 @@ func (m *Master) apiUploadSubTheme(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, err.Error())
 			return
 		}
-		writeJSON(w, 200, map[string]any{"id": mf.ID, "name": i18n(mf.Name), "version": mf.Version, "dry_run": true})
+		writeJSON(w, 200, map[string]any{"id": mf.ID, "name": locText(reqLang(r), mf.Name), "version": mf.Version, "dry_run": true})
 		return
 	}
 	mf, err := m.installTheme(data)
@@ -843,7 +851,7 @@ func (m *Master) apiUploadSubTheme(w http.ResponseWriter, r *http.Request) {
 	if errf(w, err) {
 		return
 	}
-	writeJSON(w, 200, m.themeInfo(t, m.activeTheme().ID))
+	writeJSON(w, 200, m.themeInfo(t, m.activeTheme().ID, reqLang(r)))
 }
 
 func (m *Master) apiActivateSubTheme(w http.ResponseWriter, r *http.Request) {
@@ -855,7 +863,7 @@ func (m *Master) apiActivateSubTheme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := m.loadTheme(req.ID); err != nil {
-		writeErr(w, 404, "主题不存在")
+		writeErr(w, 404, "Theme not found")
 		return
 	}
 	if req.ID == "" {
@@ -869,7 +877,7 @@ func (m *Master) apiActivateSubTheme(w http.ResponseWriter, r *http.Request) {
 func (m *Master) apiSaveSubThemeSettings(w http.ResponseWriter, r *http.Request) {
 	t, err := m.loadTheme(r.PathValue("id"))
 	if err != nil {
-		writeErr(w, 404, "主题不存在")
+		writeErr(w, 404, "Theme not found")
 		return
 	}
 	var in map[string]any
@@ -884,7 +892,7 @@ func (m *Master) apiSaveSubThemeSettings(w http.ResponseWriter, r *http.Request)
 	}
 	b, _ := json.Marshal(out)
 	if len(b) > themeSettingsLimit {
-		writeErr(w, 400, "设置内容过大")
+		writeErr(w, 400, "Settings are too large")
 		return
 	}
 	setSetting(m.db, themeSettingsKey(t.ID), string(b))
@@ -895,16 +903,16 @@ func (m *Master) apiSaveSubThemeSettings(w http.ResponseWriter, r *http.Request)
 func (m *Master) apiDeleteSubTheme(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == defaultThemeID {
-		writeErr(w, 400, "内置主题不能删除")
+		writeErr(w, 400, "The built-in theme can't be deleted")
 		return
 	}
 	if !themeIDRe.MatchString(id) {
-		writeErr(w, 404, "主题不存在")
+		writeErr(w, 404, "Theme not found")
 		return
 	}
 	dir := filepath.Join(m.themesDir(), id)
 	if _, err := os.Stat(dir); err != nil {
-		writeErr(w, 404, "主题不存在")
+		writeErr(w, 404, "Theme not found")
 		return
 	}
 	if err := os.RemoveAll(dir); errf(w, err) {

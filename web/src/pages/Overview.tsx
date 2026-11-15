@@ -7,6 +7,8 @@ import { go, href } from '../lib/router'
 import { Badge, Card, PageHeader, Progress, Skeleton, Stat, Empty, Button, cx } from '../ui/kit'
 import { TimeChart, ShareList, TweenBytes } from '../ui/charts'
 import { IconArrowDown, IconArrowUp, IconUsers, IconServer } from '../ui/icons'
+import { tr } from '../i18n'
+import { O } from '../i18n/overview'
 
 export function OverviewPage() {
   const ov = useQuery({ queryKey: ['overview'], queryFn: () => api<Overview>('/overview'), refetchInterval: 5000 })
@@ -19,59 +21,60 @@ export function OverviewPage() {
   })
   const o = ov.data
   const s = series.data?.series[0]
+  const t = tr(O)
   return (
     <>
-      <PageHeader title="概览" subtitle="所有节点的实时状态与最近 24 小时流量" />
+      <PageHeader title={t.title} subtitle={t.subtitle} />
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {o ? (
           <>
-            <Stat label="今日流量" value={<TweenBytes value={o.today_down + o.today_up} />}
+            <Stat label={t.today} value={<TweenBytes value={o.today_down + o.today_up} />}
               sub={<Parts items={[<><IconArrowDown size={12} className="inline" /> {bytes(o.today_down)}</>, <><IconArrowUp size={12} className="inline" /> {bytes(o.today_up)}</>]} />} />
-            <Stat label="本月流量" value={<TweenBytes value={o.month_down + o.month_up} />}
+            <Stat label={t.month} value={<TweenBytes value={o.month_down + o.month_up} />}
               sub={<Parts items={[<><IconArrowDown size={12} className="inline" /> {bytes(o.month_down)}</>, <><IconArrowUp size={12} className="inline" /> {bytes(o.month_up)}</>]} />} />
-            <Stat label="实时速率" value={<><TweenBytes value={o.rate_down + o.rate_up} />/s</>}
-              sub={<Parts items={[<><IconArrowDown size={12} className="inline" /> {rate(o.rate_down)}</>, <><IconArrowUp size={12} className="inline" /> {rate(o.rate_up)}</>, `${o.active_conns} 连接`]} />} />
-            <Stat label="在线用户" icon={<IconUsers size={14} />} value={<>{o.online_users}<span className="text-[15px] font-normal text-subtle"> / {o.active_users}</span></>}
-              sub={<Parts items={[`${o.online_ips} 个设备 IP`, `节点 ${o.nodes_online}/${o.nodes_total} 在线`]} />} />
+            <Stat label={t.rate} value={<><TweenBytes value={o.rate_down + o.rate_up} />/s</>}
+              sub={<Parts items={[<><IconArrowDown size={12} className="inline" /> {rate(o.rate_down)}</>, <><IconArrowUp size={12} className="inline" /> {rate(o.rate_up)}</>, t.conns(o.active_conns)]} />} />
+            <Stat label={t.onlineUsers} icon={<IconUsers size={14} />} value={<>{o.online_users}<span className="text-[15px] font-normal text-subtle"> / {o.active_users}</span></>}
+              sub={<Parts items={[t.deviceIps(o.online_ips), t.nodesOnline(o.nodes_online, o.nodes_total)]} />} />
           </>
         ) : [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[112px]" />)}
       </div>
 
       {o && <Attention o={o} last={s?.points[s.points.length - 1]} />}
 
-      <Card className="mt-4" title="24 小时流量" action={<a href={href('traffic')} className="text-[13px] text-accent hover:underline">流量分析 →</a>}>
+      <Card className="mt-4" title={t.chart24} action={<a href={href('traffic')} className="text-[13px] text-accent hover:underline">{t.toTraffic}</a>}>
         {s ? (
           <TimeChart
             step={series.data!.step}
             times={s.points.map((p) => p[0])}
             series={[
-              { key: 'down', label: '下行', values: s.points.map((p) => p[2]), color: 'var(--s1)' },
-              { key: 'up', label: '上行', values: s.points.map((p) => p[1]), color: 'var(--s2)' },
+              { key: 'down', label: t.down, values: s.points.map((p) => p[2]), color: 'var(--s1)' },
+              { key: 'up', label: t.up, values: s.points.map((p) => p[1]), color: 'var(--s2)' },
             ]}
           />
-        ) : series.data ? <Empty title="还没有流量" hint="节点开始转发后，这里会显示每 5 分钟的流量" /> : <Skeleton className="h-[240px]" />}
+        ) : series.data ? <Empty title={t.noTraffic} hint={t.noTrafficHint} /> : <Skeleton className="h-[240px]" />}
       </Card>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card title="用户 Top（24h）">
+        <Card title={t.topUsers}>
           <ShareList rows={(o?.top_users ?? []).map((r) => ({ key: r.key, label: r.label, value: r.up + r.down }))}
-            onSelect={(k) => go('users', { id: k })} emptyText="暂无用户流量" />
+            onSelect={(k) => go('users', { id: k })} emptyText={t.noUserTraffic} />
         </Card>
-        <Card title="域名占比（24h）">
+        <Card title={t.topDomains}>
           <ShareList mono rows={(o?.top_domains ?? []).map((r) => ({ key: r.key, label: r.label, value: r.up + r.down }))}
-            onSelect={(k) => go('traffic', { dim: 'domain', q: k })} emptyText="暂无域名数据" />
+            onSelect={(k) => go('traffic', { dim: 'domain', q: k })} emptyText={t.noDomains} />
         </Card>
-        <Card title="出站分布（24h）">
-          <ShareList rows={(o?.top_outbounds ?? []).map((r) => ({ key: r.key, label: r.label, value: r.up + r.down }))} emptyText="暂无出站数据" />
+        <Card title={t.outbounds}>
+          <ShareList rows={(o?.top_outbounds ?? []).map((r) => ({ key: r.key, label: r.label, value: r.up + r.down }))} emptyText={t.noOutbounds} />
         </Card>
       </div>
 
       <div className="mt-6 mb-3 flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold">节点</h2>
-        <a href={href('nodes')} className="text-[13px] text-accent hover:underline">管理节点 →</a>
+        <h2 className="text-[15px] font-semibold">{t.nodes}</h2>
+        <a href={href('nodes')} className="text-[13px] text-accent hover:underline">{t.manageNodes}</a>
       </div>
       {o && o.nodes.length === 0 && (
-        <Card><Empty title="还没有节点" hint="添加一个节点，在服务器上运行一行接入命令即可上线" action={<Button variant="primary" onPress={() => go('nodes')}>添加节点</Button>} /></Card>
+        <Card><Empty title={t.noNodes} hint={t.noNodesHint} action={<Button variant="primary" onPress={() => go('nodes')}>{t.addNode}</Button>} /></Card>
       )}
       <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
         {o?.nodes.map((n) => <NodeCard key={n.id} n={n} />)}
@@ -98,29 +101,30 @@ function Attention({ o, last }: { o: Overview; last?: [number, number, number] }
   const drafts = (templates.data ?? []).filter((t) => t.has_draft).length
   type Item = { tone: 'bad' | 'warn' | 'neutral'; title: string; detail?: string; to: string; cta: string }
   const items: Item[] = []
-  if (offline.length) items.push({ tone: 'bad', title: `${offline.length} 个节点离线`, detail: offline.map((n) => n.name).join('、'), to: href('nodes'), cta: '查看节点' })
-  if (failing.length) items.push({ tone: 'bad', title: `${failing.length} 个节点配置下发失败`, detail: failing.map((n) => `${n.name}：${n.apply_error}`).join('；'), to: href('nodes'), cta: '查看错误' })
-  if (hot.length) items.push({ tone: 'warn', title: `${hot.length} 个节点本月流量 ≥80%`, detail: hot.map((n) => `${n.name} ${pct(n.month_up + n.month_down, n.traffic_limit).toFixed(0)}%`).join('、'), to: href('nodes'), cta: '查看节点' })
+  const t = tr(O)
+  if (offline.length) items.push({ tone: 'bad', title: t.offline(offline.length), detail: offline.map((n) => n.name).join(t.listSep), to: href('nodes'), cta: t.viewNodes })
+  if (failing.length) items.push({ tone: 'bad', title: t.failing(failing.length), detail: failing.map((n) => `${n.name}${t.colon}${n.apply_error}`).join(t.errSep), to: href('nodes'), cta: t.viewErrors })
+  if (hot.length) items.push({ tone: 'warn', title: t.hot(hot.length), detail: hot.map((n) => `${n.name} ${pct(n.month_up + n.month_down, n.traffic_limit).toFixed(0)}%`).join(t.listSep), to: href('nodes'), cta: t.viewNodes })
   const exp = count('expiring'), q80 = count('quota80'), lim = count('limited')
-  if (exp) items.push({ tone: 'warn', title: `${exp} 个用户 7 天内到期`, to: href('users', { f: 'expiring', sort: 'expire' }), cta: '去续期' })
-  if (q80) items.push({ tone: 'warn', title: `${q80} 个用户额度已用 ≥80%`, to: href('users', { f: 'quota80', sort: 'usage' }), cta: '查看' })
-  if (lim) items.push({ tone: 'bad', title: `${lim} 个用户已超额`, detail: '超额用户已从所有节点移除', to: href('users', { f: 'limited' }), cta: '查看' })
-  if (pending.length) items.push({ tone: 'neutral', title: `${pending.length} 个节点等待接入`, to: href('nodes'), cta: '查看接入命令' })
-  if (drafts) items.push({ tone: 'neutral', title: `${drafts} 个模板草稿待发布`, to: href('templates'), cta: '去发布' })
+  if (exp) items.push({ tone: 'warn', title: t.expiring(exp), to: href('users', { f: 'expiring', sort: 'expire' }), cta: t.extend })
+  if (q80) items.push({ tone: 'warn', title: t.quota80(q80), to: href('users', { f: 'quota80', sort: 'usage' }), cta: t.view })
+  if (lim) items.push({ tone: 'bad', title: t.limited(lim), detail: t.limitedDetail, to: href('users', { f: 'limited' }), cta: t.view })
+  if (pending.length) items.push({ tone: 'neutral', title: t.pending(pending.length), to: href('nodes'), cta: t.viewCmd })
+  if (drafts) items.push({ tone: 'neutral', title: t.drafts(drafts), to: href('templates'), cta: t.publish })
   if (o.nodes_total === 0) return null
   const dot = { bad: 'bg-bad', warn: 'bg-warn', neutral: 'bg-muted' }
   if (items.length === 0) {
     return (
       <div className="mt-4 flex animate-content-in flex-wrap items-center gap-2 rounded-[16px] border bg-good/6 px-4 py-3 text-[13px]">
         <span className="h-2 w-2 rounded-full bg-good" />
-        <span className="font-medium text-good">一切正常</span>
-        <span className="text-subtle">· {o.nodes_online} 个节点在线</span>
-        {last && <span className="text-subtle tabular">· 最近 5 分钟 ↓ {bytes(last[2])} ↑ {bytes(last[1])}</span>}
+        <span className="font-medium text-good">{t.allGood}</span>
+        <span className="text-subtle">· {t.nOnline(o.nodes_online)}</span>
+        {last && <span className="text-subtle tabular">· {t.last5} ↓ {bytes(last[2])} ↑ {bytes(last[1])}</span>}
       </div>
     )
   }
   return (
-    <Card className="mt-4 animate-content-in" title={<span className="flex items-center gap-2">需要关注 <Badge tone={items.some((i) => i.tone === 'bad') ? 'bad' : 'warn'}>{items.length}</Badge></span>} pad={false}>
+    <Card className="mt-4 animate-content-in" title={<span className="flex items-center gap-2">{t.attention} <Badge tone={items.some((i) => i.tone === 'bad') ? 'bad' : 'warn'}>{items.length}</Badge></span>} pad={false}>
       <ul className="pb-2">
         {items.map((x) => (
           <li key={x.title}>
@@ -140,11 +144,12 @@ function Attention({ o, last }: { o: Overview; last?: [number, number, number] }
 }
 
 export function nodeStatus(n: Node): { tone: 'good' | 'warn' | 'bad' | 'neutral'; text: string } {
-  if (!n.enrolled) return { tone: 'neutral', text: '待接入' }
-  if (!n.online) return { tone: 'bad', text: '离线' }
-  if (n.apply_error) return { tone: 'warn', text: '配置异常' }
-  if (n.applied_revision !== n.revision) return { tone: 'warn', text: '同步中' }
-  return { tone: 'good', text: '在线' }
+  const t = tr(O)
+  if (!n.enrolled) return { tone: 'neutral', text: t.stPending }
+  if (!n.online) return { tone: 'bad', text: t.stOffline }
+  if (n.apply_error) return { tone: 'warn', text: t.stError }
+  if (n.applied_revision !== n.revision) return { tone: 'warn', text: t.stSync }
+  return { tone: 'good', text: t.stOnline }
 }
 
 export function NodeCard({ n, actions }: { n: Node; actions?: React.ReactNode }) {
@@ -152,6 +157,7 @@ export function NodeCard({ n, actions }: { n: Node; actions?: React.ReactNode })
   const cpu = n.sys?.cpu_pct ?? 0
   const memP = pct(n.sys?.mem_used ?? 0, n.sys?.mem_total ?? 0)
   const month = n.month_up + n.month_down
+  const t = tr(O)
   return (
     <section className="rounded-[16px] border bg-surface p-5">
       <div className="flex items-start justify-between gap-3">
@@ -162,33 +168,33 @@ export function NodeCard({ n, actions }: { n: Node; actions?: React.ReactNode })
             <Badge tone={st.tone} dot>{st.text}</Badge>
           </div>
           <div className="mt-1 truncate text-xs text-muted">
-            {n.address || '—'}{n.info?.singbox ? ` · sing-box ${n.info.singbox}` : ''}{n.online ? ` · 运行 ${duration(n.sys?.uptime ?? 0)}` : n.last_seen ? ` · ${ago(n.last_seen)}` : ''}
+            {n.address || '—'}{n.info?.singbox ? ` · sing-box ${n.info.singbox}` : ''}{n.online ? ` · ${t.uptime(duration(n.sys?.uptime ?? 0))}` : n.last_seen ? ` · ${ago(n.last_seen)}` : ''}
           </div>
         </div>
         {actions}
       </div>
       {n.apply_error && <div className="mt-3 rounded-[10px] bg-warn/10 px-3 py-2 font-mono text-xs break-all text-warn">{n.apply_error}</div>}
       <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-[13px]">
-        <Metric label="下行 / 上行" value={n.online ? `${rate(n.rate_down)} / ${rate(n.rate_up)}` : '—'} />
-        <Metric label="连接 / 在线用户" value={n.online ? `${n.active_conns} / ${n.online_users}` : '—'} />
+        <Metric label={t.rates} value={n.online ? `${rate(n.rate_down)} / ${rate(n.rate_up)}` : '—'} />
+        <Metric label={t.connsUsers} value={n.online ? `${n.active_conns} / ${n.online_users}` : '—'} />
         <div>
           <div className="mb-1 flex justify-between text-xs text-subtle"><span>CPU</span><span className="tabular">{n.online ? cpu.toFixed(0) + '%' : '—'}</span></div>
           <Progress value={n.online ? cpu : 0} />
         </div>
         <div>
-          <div className="mb-1 flex justify-between text-xs text-subtle"><span>内存</span><span className="tabular">{n.online ? `${bytes(n.sys?.mem_used ?? 0, 0)} / ${bytes(n.sys?.mem_total ?? 0, 0)}` : '—'}</span></div>
+          <div className="mb-1 flex justify-between text-xs text-subtle"><span>{t.memory}</span><span className="tabular">{n.online ? `${bytes(n.sys?.mem_used ?? 0, 0)} / ${bytes(n.sys?.mem_total ?? 0, 0)}` : '—'}</span></div>
           <Progress value={n.online ? memP : 0} />
         </div>
       </div>
       <div className="mt-4 border-t pt-3">
         <div className="mb-1 flex justify-between text-xs text-subtle">
-          <span>本月（{n.reset_day} 日重置）</span>
+          <span>{t.monthReset(n.reset_day)}</span>
           <span className="tabular">{bytes(month)}{n.traffic_limit > 0 ? ` / ${bytes(n.traffic_limit, 0)}` : ''}</span>
         </div>
         <Progress value={n.traffic_limit > 0 ? pct(month, n.traffic_limit) : 0} />
         <div className={cx('mt-2 flex justify-between text-xs text-muted tabular')}>
-          <span>今日 {bytes(n.today_down + n.today_up)}</span>
-          <span>{n.inbounds} 个入站 · r{n.applied_revision}{n.applied_revision !== n.revision ? `→${n.revision}` : ''}{n.spool_backlog > 0 ? ` · 待上报 ${n.spool_backlog}` : ''}</span>
+          <span>{t.todayX(bytes(n.today_down + n.today_up))}</span>
+          <span>{t.inboundsN(n.inbounds)} · r{n.applied_revision}{n.applied_revision !== n.revision ? `→${n.revision}` : ''}{n.spool_backlog > 0 ? ` · ${t.backlog(n.spool_backlog)}` : ''}</span>
         </div>
       </div>
     </section>

@@ -66,6 +66,28 @@ func (e *env) probe(inbound int64) []probeRes {
 	return rs
 }
 
+// probeIn runs a probe with the explanations in lang ("zh" or "" for English).
+func (e *env) probeIn(lang string, inbound int64) []probeRes {
+	e.t.Helper()
+	prev := e.api.lang
+	e.api.lang = lang
+	defer func() { e.api.lang = prev }()
+	return e.probe(inbound)
+}
+
+// storedProbe returns the last results of an inbound from /api/probe/results, in English.
+func (e *env) storedProbe(inbound int64) []probeRes {
+	e.t.Helper()
+	var all, out []probeRes
+	e.api.do("GET", "/api/probe/results", nil, &all)
+	for _, r := range all {
+		if r.InboundID == inbound {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // TestPanelCertRotation: an uploaded certificate is distributed to the node; replacing
 // it swaps the files without rebuilding the inbound, and new handshakes see the new
 // certificate.
@@ -76,9 +98,14 @@ func TestPanelCertRotation(t *testing.T) {
 
 	// validation errors are explained
 	_, kOther, _ := pemPair(t, "sb.test", 90)
-	if body := e.api.expect(400, "POST", "/api/certs/upload", map[string]any{"cert_pem": c1, "key_pem": kOther}); !strings.Contains(body, "不匹配") {
+	if body := e.api.expect(400, "POST", "/api/certs/upload", map[string]any{"cert_pem": c1, "key_pem": kOther}); !strings.Contains(body, "does not match") {
 		t.Fatalf("mismatch: %s", body)
 	}
+	e.api.lang = "zh"
+	if body := e.api.expect(400, "POST", "/api/certs/upload", map[string]any{"cert_pem": c1, "key_pem": kOther}); !strings.Contains(body, "不匹配") {
+		t.Fatalf("mismatch (zh): %s", body)
+	}
+	e.api.lang = ""
 	var preview struct {
 		SANs     []string `json:"sans"`
 		NotAfter int64    `json:"not_after"`
@@ -200,7 +227,8 @@ func TestConnectivityProbe(t *testing.T) {
 		}
 		t.Logf("%s: %d ms %+v", name, rs[0].TotalMs, rs[0].Stages)
 	}
-	rs := e.probe(bad)
+	// explanations follow the caller's language: zh for the run, English when read back
+	rs := e.probeIn("zh", bad)
 	if len(rs) != 2 {
 		t.Fatalf("bad endpoints %+v", rs)
 	}
@@ -213,6 +241,22 @@ func TestConnectivityProbe(t *testing.T) {
 		default:
 			if r.OK || r.Stage != "tls" || !strings.Contains(r.Error, "SNI 与证书不匹配") || !strings.Contains(r.Error, "wrong.test") {
 				t.Fatalf("wrong sni: %+v", r)
+			}
+		}
+	}
+	stored := e.storedProbe(bad)
+	if len(stored) != 2 {
+		t.Fatalf("stored results %+v", stored)
+	}
+	for _, r := range stored {
+		switch {
+		case strings.HasSuffix(r.Endpoint, fmt.Sprint(closed)):
+			if r.OK || r.Stage != "tcp" || !strings.Contains(r.Error, "Port closed") {
+				t.Fatalf("closed port (en): %+v", r)
+			}
+		default:
+			if r.OK || r.Stage != "tls" || !strings.Contains(r.Error, "SNI doesn't match the certificate") || !strings.Contains(r.Error, "wrong.test") {
+				t.Fatalf("wrong sni (en): %+v", r)
 			}
 		}
 		t.Logf("%s: %s", r.Endpoint, r.Error)
@@ -280,9 +324,12 @@ func TestProbeUpstreamDown(t *testing.T) {
 	e.api.do("POST", fmt.Sprintf("/api/templates/%d/apply", tpls[0].ID), nil, nil)
 	e.waitApplied()
 
-	rs := e.probe(relay)
+	rs := e.probeIn("zh", relay)
 	if len(rs) != 1 || rs[0].OK || rs[0].Stage != "proxy" || !strings.Contains(rs[0].Error, "出站「dead-up」") {
 		t.Fatalf("upstream down: %+v", rs)
+	}
+	if rs := e.storedProbe(relay); len(rs) != 1 || !strings.Contains(rs[0].Error, `outbound "dead-up" can't connect`) {
+		t.Fatalf("upstream down (en): %+v", rs)
 	}
 	t.Logf("upstream down: %s", rs[0].Error)
 	// the probe's sightings stay out of the live connection list

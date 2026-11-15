@@ -65,6 +65,9 @@ func (c *Config) defaults() {
 }
 
 type Master struct {
+	bg       sync.WaitGroup // background notifications, waited for by stopBackground
+	quit     chan struct{}
+	quitOnce sync.Once
 	cfg      Config
 	db       *sql.DB
 	ca       *pki.CA
@@ -92,7 +95,7 @@ func New(cfg Config) (*Master, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tz: %w", err)
 	}
-	m := &Master{cfg: cfg, db: db, log: log.New(os.Stderr, "[master] ", log.LstdFlags), loc: loc}
+	m := &Master{cfg: cfg, db: db, log: log.New(os.Stderr, "[master] ", log.LstdFlags), loc: loc, quit: make(chan struct{})}
 	m.hub = newHub(m)
 	eventHook = m.onEvent
 	if err := m.initSecrets(); err != nil {
@@ -188,6 +191,7 @@ func (m *Master) Run(ctx context.Context) error {
 	case err = <-errc:
 	}
 	close(stop)
+	m.stopBackground()
 	m.hub.Stop()
 	srv.Close()
 	m.db.Close()
@@ -199,3 +203,10 @@ func (m *Master) Run(ctx context.Context) error {
 
 // Version is set at build time (-X sbpanel/internal/master.Version=...).
 var Version = "dev"
+
+// stopBackground cancels pending notifications and waits for running ones, so
+// nothing touches the database after shutdown.
+func (m *Master) stopBackground() {
+	m.quitOnce.Do(func() { close(m.quit) })
+	m.bg.Wait()
+}

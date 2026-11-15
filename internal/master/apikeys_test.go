@@ -246,8 +246,15 @@ func TestKeyExpiryIPAndRateLimit(t *testing.T) {
 		t.Fatalf("fresh key %d", w.Code)
 	}
 	m.db.Exec(`UPDATE api_tokens SET expires_at=? WHERE id=?`, now()-1, k.ID)
-	if w := call(h, "GET", "/api/users", nil, bearer(exp)); w.Code != 401 || !strings.Contains(w.Body.String(), "过期") {
+	if w := call(h, "GET", "/api/users", nil, bearer(exp)); w.Code != 401 || !strings.Contains(w.Body.String(), "API key expired") {
 		t.Fatalf("expired key %d %s", w.Code, w.Body)
+	}
+	// the message follows the caller's language (X-Lang, else Accept-Language)
+	if w := call(h, "GET", "/api/users", nil, bearer(exp), hdr("X-Lang", "zh")); w.Code != 401 || !strings.Contains(w.Body.String(), "过期") || w.Header().Get("Content-Language") != "zh-CN" {
+		t.Fatalf("expired key (zh) %d %s", w.Code, w.Body)
+	}
+	if w := call(h, "GET", "/api/users", nil, bearer(exp), hdr("Accept-Language", "zh-TW,zh;q=0.9,en;q=0.8")); !strings.Contains(w.Body.String(), "过期") {
+		t.Fatalf("expired key (Accept-Language zh-TW) %s", w.Body)
 	}
 
 	ipk, k2 := mkKey(t, m, h, map[string]any{"name": "lan", "scopes": []string{"read"}, "allow_ips": []string{"10.0.0.0/8", "2001:db8::1"}})
@@ -301,5 +308,33 @@ func TestLegacyTokensBecomeAdmin(t *testing.T) {
 	w := call(h, "POST", "/api/tokens", map[string]any{"name": "ci"}, sessionOpt(m))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"scopes":["admin"]`) {
 		t.Fatalf("name-only create: %d %s", w.Code, w.Body)
+	}
+}
+
+// The spec's text follows the caller's language; the English spec has no Chinese left.
+func TestOpenAPILocalized(t *testing.T) {
+	m := newTestMaster(t)
+	h := m.routes()
+	tok, _ := mkKey(t, m, h, map[string]any{"name": "docs", "scopes": []string{"read"}})
+	op := func(lang string) (string, map[string]any) {
+		w := call(h, "GET", "/api/openapi.json", nil, bearer(tok), hdr("X-Lang", lang))
+		var spec map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+			t.Fatalf("%s spec: %v", lang, err)
+		}
+		return w.Body.String(), spec["paths"].(map[string]any)["/api/certs"].(map[string]any)["get"].(map[string]any)
+	}
+	enBody, en := op("en")
+	if en["summary"] != "List certificates (with the inbounds using them)" || !strings.HasPrefix(en["description"].(string), "Requires scope `read`.") {
+		t.Fatalf("en op = %v / %v", en["summary"], en["description"])
+	}
+	for _, r := range enBody {
+		if r >= 0x4e00 && r <= 0x9fff {
+			t.Fatalf("Chinese text in the English spec near %q", enBody[strings.IndexRune(enBody, r)-40:strings.IndexRune(enBody, r)+20])
+		}
+	}
+	_, zh := op("zh")
+	if zh["summary"] != "证书列表（含使用的入站）" || !strings.HasPrefix(zh["description"].(string), "需要权限：`read`。") {
+		t.Fatalf("zh op = %v / %v", zh["summary"], zh["description"])
 	}
 }

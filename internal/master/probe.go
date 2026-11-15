@@ -92,7 +92,7 @@ type probeResult struct {
 	SNI       string       `json:"sni"`
 	OK        bool         `json:"ok"`
 	Stage     string       `json:"stage,omitempty"` // first failed stage
-	Error     string       `json:"error,omitempty"` // Chinese explanation
+	Error     string       `json:"error,omitempty"` // explanation (English; localized per request by localizeProbe)
 	Raw       string       `json:"raw,omitempty"`   // underlying error
 	Stages    []probeStage `json:"stages"`
 	TotalMs   int64        `json:"total_ms"`
@@ -111,13 +111,13 @@ func isTimeout(err error) bool {
 func explainDial(err error, ep string) string {
 	switch {
 	case errors.Is(err, syscall.ECONNREFUSED) || strings.Contains(err.Error(), "connection refused"):
-		return "端口未开放：" + ep + " 拒绝连接（入站没有在监听，或端口写错了）"
+		return fmt.Sprintf("Port closed: %s refused the connection (the inbound isn't listening, or the port is wrong)", ep)
 	case isTimeout(err):
-		return "连接超时：" + ep + " 没有响应，端口可能被防火墙 / 安全组过滤，或地址不可达"
+		return fmt.Sprintf("Connection timed out: %s didn't respond; a firewall / security group may be filtering the port, or the address is unreachable", ep)
 	case strings.Contains(err.Error(), "no route") || strings.Contains(err.Error(), "unreachable"):
-		return "网络不可达：master 到 " + ep + " 没有路由"
+		return fmt.Sprintf("Network unreachable: no route from the master to %s", ep)
 	}
-	return "连接失败：" + err.Error()
+	return fmt.Sprintf("Connection failed: %v", err)
 }
 
 func explainTLS(err error, sni string) string {
@@ -130,19 +130,19 @@ func explainTLS(err error, sni string) string {
 		if names == "" {
 			names = he.Certificate.Subject.CommonName
 		}
-		return fmt.Sprintf("SNI 与证书不匹配：证书不包含 %s（证书域名：%s）", sni, names)
+		return fmt.Sprintf("SNI doesn't match the certificate: it doesn't cover %s (certificate names: %s)", sni, names)
 	case errors.As(err, &ue):
-		return "证书不受信任：自签名或缺少中间证书（可在面板导入证书，或在客户端设置里允许不安全）"
+		return "Untrusted certificate: self-signed or missing intermediates (import the certificate into the panel, or allow insecure in the client)"
 	case errors.As(err, &ce) && ce.Reason == x509.Expired:
-		return "证书已过期或尚未生效"
+		return "The certificate has expired or is not valid yet"
 	case isTimeout(err):
-		return "TLS 握手超时：端口能连上，但没有按 TLS 应答（协议或端口不对？）"
+		return "TLS handshake timed out: the port accepts connections but doesn't answer TLS (wrong protocol or port?)"
 	case strings.Contains(err.Error(), "first record does not look like a TLS handshake"):
-		return "对端不是 TLS：该端口上的服务没有开启 TLS"
+		return "Not TLS: the service on this port doesn't speak TLS"
 	case strings.Contains(err.Error(), "EOF") || strings.Contains(err.Error(), "reset"):
-		return "TLS 握手被对端关闭：SNI 不被接受，或入站不是 TLS"
+		return "TLS handshake closed by the server: the SNI isn't accepted, or the inbound isn't TLS"
 	}
-	return "TLS 握手失败：" + err.Error()
+	return fmt.Sprintf("TLS handshake failed: %v", err)
 }
 
 func explainProxy(err error, e subEntry) string {
@@ -151,17 +151,17 @@ func explainProxy(err error, e subEntry) string {
 	case e.Security == "reality" && (strings.Contains(s, "reality") || strings.Contains(s, "REALITY") || strings.Contains(s, "x509") || strings.Contains(s, "certificate")):
 		// a failed REALITY auth makes the server relay the camouflage site, whose real
 		// certificate the client then rejects
-		return "REALITY 认证失败：公钥 / short_id 不匹配，或 SNI 不在服务端 server_names 里（服务端把连接转给了伪装站点）"
+		return "REALITY authentication failed: public key / short_id mismatch, or the SNI isn't in the server's server_names (the server relayed the connection to the camouflage site)"
 	case strings.Contains(s, "x509") || strings.Contains(s, "certificate"):
 		return explainTLS(err, e.SNI)
 	case isTimeout(err):
-		return "代理请求超时：已连上入站，但节点出站访问探测地址没有响应（节点出网受限，或认证失败后被静默丢弃）"
+		return "Proxy request timed out: connected to the inbound, but the probe URL didn't respond through the node (restricted egress on the node, or silently dropped after failed authentication)"
 	case strings.Contains(s, "EOF") || strings.Contains(s, "reset by peer") || strings.Contains(s, "closed"):
-		return "入站关闭了连接：认证失败（探测用户还没下发到节点？）或协议 / 传输层设置与客户端不一致"
+		return "The inbound closed the connection: authentication failed (probe user not deployed to the node yet?) or the protocol / transport settings differ from the client's"
 	case strings.Contains(s, "no such host"):
-		return "节点无法解析探测地址的域名（节点 DNS 故障）"
+		return "The node can't resolve the probe URL's domain (DNS problem on the node)"
 	}
-	return "代理请求失败：" + s
+	return fmt.Sprintf("Proxy request failed: %s", s)
 }
 
 // ---------- the probe ----------
@@ -194,7 +194,8 @@ var udpTypes = map[string]bool{"hysteria2": true, "tuic": true}
 // probeEntry tests one client endpoint stage by stage. pinPEM, when set, is the
 // panel certificate the inbound serves; it is trusted as-is (self-signed or
 // staging certificates are fine), while the SNI must still match it.
-func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls []string) probeResult {
+// static inbounds (own key, no probe user) are only tested up to the transport.
+func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls []string, static bool) probeResult {
 	start := time.Now()
 	ep := hostPort(e.Address, e.Port)
 	r := probeResult{Endpoint: ep, Remark: e.Remark, Type: e.Type, Security: e.Security, SNI: e.SNI, TS: now()}
@@ -208,13 +209,13 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 	}
 	add := func(s probeStage) { r.Stages = append(r.Stages, s) }
 	if e.Address == "" {
-		return fail("dns", "节点没有可用的地址：请在节点设置里填写公网地址，或为入站添加 Host", nil)
+		return fail("dns", "The node has no usable address: set a public address in the node settings, or add a host to the inbound", nil)
 	}
 
 	// 1. DNS
 	ip := e.Address
 	if net.ParseIP(strings.Trim(e.Address, "[]")) != nil {
-		add(probeStage{Name: "dns", Label: "DNS", OK: true, Skip: true, Detail: "IP 地址，无需解析"})
+		add(probeStage{Name: "dns", Label: "DNS", OK: true, Skip: true, Detail: "IP address, no lookup needed"})
 	} else {
 		t := time.Now()
 		dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -222,9 +223,9 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 		cancel()
 		if err != nil || len(addrs) == 0 {
 			add(probeStage{Name: "dns", Label: "DNS", Ms: since(t)})
-			msg := "域名解析失败：" + e.Address + " 没有 A/AAAA 记录（检查 DNS 记录是否已创建、是否已生效）"
+			msg := fmt.Sprintf("DNS lookup failed: %s has no A/AAAA record (check that the DNS record exists and has propagated)", e.Address)
 			if err != nil && isTimeout(err) {
-				msg = "域名解析超时：" + e.Address
+				msg = fmt.Sprintf("DNS lookup timed out: %s", e.Address)
 			}
 			return fail("dns", msg, err)
 		}
@@ -235,7 +236,7 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 		}
 		detail := strings.Join(list, ", ")
 		if a := addrs[0].IP; a.To4() != nil && a[len(a)-4] == 198 && a[len(a)-3]&0xfe == 18 {
-			detail += " · 这是 fake-ip 地址：master 所在机器开着代理的 TUN / fake-ip 模式，测试结果不代表真实线路"
+			detail += " · " + "This is a fake-ip address: the master's machine runs a proxy in TUN / fake-ip mode, so results don't reflect the real route"
 		}
 		add(probeStage{Name: "dns", Label: "DNS", OK: true, Ms: since(t), Detail: detail})
 	}
@@ -266,7 +267,7 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 		sum := sha256.Sum256(leaf.Raw)
 		pinned := pinFP != "" && hex.EncodeToString(sum[:]) == pinFP
 		left := int(time.Until(leaf.NotAfter).Hours() / 24)
-		certDetail = fmt.Sprintf("证书 %s · 剩余 %d 天", strings.Join(leafInfo(leaf).SANs, ", "), left)
+		certDetail = fmt.Sprintf("Certificate %s", strings.Join(leafInfo(leaf).SANs, ", ")) + " · " + fmt.Sprintf("%d days left", left)
 		if !pinned && !e.Insecure {
 			inter := x509.NewCertPool()
 			for _, c := range cs.PeerCertificates[1:] {
@@ -284,7 +285,7 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 		if sni != "" && net.ParseIP(sni) == nil {
 			if err := leaf.VerifyHostname(sni); err != nil {
 				if e.Insecure {
-					certDetail += " · 证书不含该 SNI（客户端已跳过验证）"
+					certDetail += " · " + "Certificate doesn't cover this SNI (the client skips verification)"
 					return nil
 				}
 				return err
@@ -306,21 +307,21 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 		conn, err := quic.DialAddr(qctx, target, qc, &quic.Config{HandshakeIdleTimeout: 5 * time.Second})
 		cancel()
 		if err != nil {
-			add(probeStage{Name: "quic", Label: "QUIC 握手", Ms: since(t)})
+			add(probeStage{Name: "quic", Label: "QUIC handshake", Ms: since(t)})
 			s := err.Error()
-			msg := "QUIC 握手失败：" + s
+			msg := fmt.Sprintf("QUIC handshake failed: %s", s)
 			switch {
 			case isTimeout(err) || strings.Contains(s, "no recent network activity"):
-				msg = "QUIC 握手超时：UDP " + ep + " 没有响应（端口未开放，或 UDP 被防火墙过滤）"
+				msg = fmt.Sprintf("QUIC handshake timed out: UDP %s didn't respond (port closed, or UDP is filtered by a firewall)", ep)
 			case strings.Contains(s, "x509") || strings.Contains(s, "certificate"):
 				msg = explainTLS(err, sni)
 			case strings.Contains(s, "refused"):
-				msg = "端口未开放：UDP " + ep + " 拒绝连接"
+				msg = fmt.Sprintf("Port closed: UDP %s refused the connection", ep)
 			}
 			return fail("quic", msg, err)
 		}
 		conn.CloseWithError(0, "")
-		add(probeStage{Name: "quic", Label: "QUIC 握手", OK: true, Ms: since(t), Detail: certDetail})
+		add(probeStage{Name: "quic", Label: "QUIC handshake", OK: true, Ms: since(t), Detail: certDetail})
 	} else {
 		t := time.Now()
 		var d net.Dialer
@@ -328,10 +329,10 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 		c, err := d.DialContext(dctx, "tcp", target)
 		cancel()
 		if err != nil {
-			add(probeStage{Name: "tcp", Label: "TCP 连接", Ms: since(t)})
+			add(probeStage{Name: "tcp", Label: "TCP connect", Ms: since(t)})
 			return fail("tcp", explainDial(err, ep), err)
 		}
-		add(probeStage{Name: "tcp", Label: "TCP 连接", OK: true, Ms: since(t), Detail: target})
+		add(probeStage{Name: "tcp", Label: "TCP connect", OK: true, Ms: since(t), Detail: target})
 		// 3. TLS (REALITY is checked by the real client below: a plain handshake would
 		// only reach the camouflage site)
 		if e.Security == "tls" {
@@ -341,14 +342,21 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 			err := tc.HandshakeContext(ctx)
 			if err != nil {
 				c.Close()
-				add(probeStage{Name: "tls", Label: "TLS 握手", Ms: since(t), Detail: certDetail})
+				add(probeStage{Name: "tls", Label: "TLS handshake", Ms: since(t), Detail: certDetail})
 				return fail("tls", explainTLS(err, sni), err)
 			}
 			tc.Close()
-			add(probeStage{Name: "tls", Label: "TLS 握手", OK: true, Ms: since(t), Detail: certDetail})
+			add(probeStage{Name: "tls", Label: "TLS handshake", OK: true, Ms: since(t), Detail: certDetail})
 		} else {
 			c.Close()
 		}
+	}
+
+	if static {
+		add(probeStage{Name: "proxy", Label: "Proxy request", OK: true, Skip: true, Detail: msgStaticProbe})
+		r.OK = true
+		r.TotalMs = since(start)
+		return r
 	}
 
 	// 4. a real client through the inbound
@@ -371,7 +379,7 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 	}
 	hc, closeFn, err := probeClient(ctx, ob)
 	if err != nil {
-		return fail("proxy", "无法创建探测客户端："+err.Error(), err)
+		return fail("proxy", fmt.Sprintf("Can't create the probe client: %v", err), err)
 	}
 	defer closeFn()
 	var last error
@@ -381,18 +389,18 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 		hc.dialHook = func(d time.Duration) { dialMs.CompareAndSwap(0, d.Milliseconds()+1) }
 		code, err := hc.get(ctx, u, p.timeout)
 		if err == nil && code < 400 {
-			label := "握手 + 隧道"
+			label := "Handshake + tunnel"
 			if e.Security == "reality" {
-				label = "REALITY 握手"
+				label = "REALITY handshake"
 			}
 			if dm := dialMs.Load(); dm > 0 {
 				add(probeStage{Name: "handshake", Label: label, OK: true, Ms: dm - 1})
 			}
 			detail := fmt.Sprintf("HTTP %d · %s", code, u)
 			if i > 0 {
-				detail += "（主探测地址失败，使用备用地址）"
+				detail += " · " + "primary probe URL failed, used the fallback"
 			}
-			add(probeStage{Name: "proxy", Label: "代理请求", OK: true, Ms: since(t), Detail: detail})
+			add(probeStage{Name: "proxy", Label: "Proxy request", OK: true, Ms: since(t), Detail: detail})
 			r.OK, r.URL = true, u
 			r.TotalMs = since(start)
 			return r
@@ -405,10 +413,10 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 			break // the tunnel itself failed: another URL won't help
 		}
 	}
-	add(probeStage{Name: "proxy", Label: "代理请求", Ms: since(start) - sumMs(r.Stages)})
+	add(probeStage{Name: "proxy", Label: "Proxy request", Ms: since(start) - sumMs(r.Stages)})
 	msg := explainProxy(last, e)
 	if strings.HasPrefix(last.Error(), "HTTP ") {
-		msg = "探测地址返回 " + last.Error() + "（隧道正常，但目标站点拒绝了请求）"
+		msg = fmt.Sprintf("The probe URL returned %s (the tunnel works, but the target site rejected the request)", last.Error())
 	}
 	return fail("proxy", msg, last)
 }
@@ -417,21 +425,23 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 // the probe's connection, the inbound authenticated it and the failure is past
 // it (the outbound, an upstream relay, or the node's own network).
 func (p *prober) refineProxy(r *probeResult, nodeID, tag string, began time.Time) {
-	if strings.HasPrefix(r.Error, "探测地址返回") || strings.HasPrefix(r.Error, "REALITY") {
+	if strings.HasPrefix(r.Error, "The probe URL returned") || strings.HasPrefix(r.Error, "REALITY") {
 		return
 	}
 	ps, seen, known := p.m.hub.probeSighting(nodeID, tag, began, 2500*time.Millisecond)
 	switch {
 	case seen && (ps.outbound == "" || ps.outbound == "direct"):
-		r.Error = "入站正常（节点已收到并认证探测连接，走直连出站），但节点访问探测地址失败：节点出网受限，或 DNS / 路由有问题"
+		r.Error = "The inbound works (the node accepted and authenticated the probe, via the direct outbound), but the node can't reach the probe URL: restricted egress, or a DNS / routing problem on the node"
 	case seen:
-		r.Error = fmt.Sprintf("入站正常（节点已收到并认证探测连接），但出站「%s」连不上：上游 / 中转服务器不可达，或该出站的地址、端口、密码配置有误", ps.outbound)
-	case known && strings.HasPrefix(r.Error, "入站关闭了连接"):
-		r.Error = "入站拒绝了探测连接（节点没有收到认证通过的连接）：探测用户还没下发到节点，或协议 / 传输层 / 密钥设置与客户端不一致"
-	case known && strings.HasPrefix(r.Error, "代理请求超时"):
-		r.Error = "代理请求超时，节点没有收到认证通过的连接：入站认证失败后被静默丢弃，或入站与客户端的协议 / 传输层设置不一致"
+		r.Error = fmt.Sprintf("The inbound works (the node accepted and authenticated the probe), but outbound \"%s\" can't connect: the upstream / relay server is unreachable, or that outbound's address, port or password is wrong", ps.outbound)
+	case known && strings.HasPrefix(r.Error, "The inbound closed the connection"):
+		r.Error = "The inbound rejected the probe (the node saw no authenticated connection): the probe user isn't deployed to the node yet, or the protocol / transport / key settings differ from the client's"
+	case known && strings.HasPrefix(r.Error, "Proxy request timed out"):
+		r.Error = "Proxy request timed out and the node saw no authenticated connection: silently dropped after failed authentication, or the protocol / transport settings differ between inbound and client"
 	}
 }
+
+const msgStaticProbe = "Standalone inbound with its own key: only reachability is tested"
 
 func sumMs(ss []probeStage) int64 {
 	var n int64
@@ -622,7 +632,7 @@ func (p *prober) run(ctx context.Context, inboundID int64, nodeID string) ([]pro
 				}
 			}
 			began := time.Now()
-			r := p.probeEntry(ctx, j.e, pin, urls)
+			r := p.probeEntry(ctx, j.e, pin, urls, isStatic(j.t.opts))
 			if !r.OK && r.Stage == "proxy" {
 				p.refineProxy(&r, j.t.nodeID, j.t.in.tag, began)
 			}
@@ -669,9 +679,9 @@ func (p *prober) store(ts []probeTarget, rs []probeResult) {
 		label := t.in.node + " / " + t.in.tag
 		switch {
 		case wasOK && !isOK:
-			addEvent(db, "inbound_unreachable", 0, t.nodeID, label+"："+firstErr)
+			addEvent(db, "inbound_unreachable", 0, t.nodeID, label+": "+firstErr)
 		case !wasOK && isOK:
-			addEvent(db, "inbound_recovered", 0, t.nodeID, label+" 已恢复")
+			addEvent(db, "inbound_recovered", 0, t.nodeID, fmt.Sprintf("%s recovered", label))
 		}
 	}
 }
@@ -732,7 +742,7 @@ func (m *Master) apiProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.InboundID == 0 && req.NodeID == "" && !req.All {
-		writeErr(w, 400, "需要 inbound_id、node_id 或 all")
+		writeErr(w, 400, "Pass inbound_id, node_id or all")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
@@ -742,11 +752,26 @@ func (m *Master) apiProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sort.SliceStable(rs, func(i, j int) bool { return rs[i].InboundID < rs[j].InboundID })
-	writeJSON(w, 200, rs)
+	writeJSON(w, 200, localizeProbe(reqLang(r), rs))
 }
 
 func (m *Master) apiProbeResults(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, m.probes.results())
+	writeJSON(w, 200, localizeProbe(reqLang(r), m.probes.results()))
+}
+
+// localizeProbe translates the stored (English) explanations, stage labels and details
+// (for English it only maps results stored in Chinese by older versions back).
+func localizeProbe(lang string, rs []probeResult) []probeResult {
+	for i := range rs {
+		rs[i].Error = L(lang, rs[i].Error)
+		st := make([]probeStage, len(rs[i].Stages))
+		for j, s := range rs[i].Stages {
+			s.Label, s.Detail = L(lang, s.Label), L(lang, s.Detail)
+			st[j] = s
+		}
+		rs[i].Stages = st
+	}
+	return rs
 }
 
 func (m *Master) apiProbeSettings(w http.ResponseWriter, r *http.Request) {
@@ -764,7 +789,7 @@ func (m *Master) apiProbeSettings(w http.ResponseWriter, r *http.Request) {
 			if u != nil && *u != "" {
 				pu, err := url.Parse(*u)
 				if err != nil || (pu.Scheme != "http" && pu.Scheme != "https") || pu.Host == "" {
-					writeErr(w, 400, "探测地址需要是 http(s) URL")
+					writeErr(w, 400, "The probe URL must be an http(s) URL")
 					return
 				}
 			}
@@ -777,7 +802,7 @@ func (m *Master) apiProbeSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Interval != nil {
 			if *req.Interval < 0 || *req.Interval > 1440 {
-				writeErr(w, 400, "间隔 0–1440 分钟")
+				writeErr(w, 400, "Interval must be 0–1440 minutes")
 				return
 			}
 			setSetting(m.db, "probe_interval", strconv.Itoa(*req.Interval))

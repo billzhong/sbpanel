@@ -1,7 +1,7 @@
 # Subscription-page themes
 
 When a user opens their subscription link (`/s/<token>`) in a browser, sbmaster renders the active
-**subscription-page theme**. Admins manage themes in **订阅 → 订阅页**: upload a zip, activate it,
+**subscription-page theme**. Admins manage themes in **Subscriptions → Subscription page**: upload a zip, activate it,
 edit its settings and preview it with sample or real users. The built-in theme `default` is embedded
 in the binary (`internal/master/subtheme/default/`) and is a good starting point for your own.
 
@@ -11,7 +11,7 @@ in the binary (`internal/master/subtheme/default/`) and is a good starting point
 2. Edit `sbp-theme.json`: give it your own `id`, `name` and `version`.
 3. Edit `index.html`, `app.js` and `app.css`.
 4. Zip the folder (the manifest may sit at the zip root or inside one top-level folder) and upload it
-   in 订阅 → 订阅页 → 上传主题. Uploading the same `id` again upgrades the theme and keeps its settings.
+   in Subscriptions → Subscription page → Upload theme. Uploading the same `id` again upgrades the theme and keeps its settings.
 
 ## Package
 
@@ -32,7 +32,7 @@ no dot-files. Installed themes live in `<data dir>/sub-themes/<id>/`.
 |---|---|---|
 | `api` | required | must be `1` |
 | `id` | required | `^[a-z0-9][a-z0-9_-]{1,39}$`; `default` is reserved |
-| `name` | required | string or `{"zh-CN": "…", "en": "…"}` |
+| `name` | required | string or `{"en": "…", "zh-CN": "…"}` (see [Language](#language)) |
 | `version` | required | e.g. `1.2.0`; it is part of asset URLs, so bump it on every release |
 | `author`, `description`, `homepage`, `license` | optional | `description` may be localized like `name` |
 | `preview` | optional | path of a thumbnail inside the package |
@@ -64,6 +64,7 @@ The server reads your entry page and substitutes:
 - `%SBP_DATA%` (exactly once): replaced with
   `<script id="sbp-data" type="application/json">{…}</script>`, the full data object below.
   Read it with `JSON.parse(document.getElementById('sbp-data').textContent)`.
+- `%SBP_LANG%`: the page language as a BCP 47 tag, `en` or `zh-CN`, e.g. `<html lang="%SBP_LANG%">`.
 - `%SBP_ASSETS%`: the base URL of your files, `/s/_t/<id>@<version>`. Use it for every asset
   (`<link href="%SBP_ASSETS%/app.css">`). With Vite, set `base: '%SBP_ASSETS%/'`.
 
@@ -83,7 +84,7 @@ If you don't use `%SBP_DATA%`, fetch the same object from `location.pathname + '
 {
   "api": 1, "generated_at": 1794672000,
   "site": { "title": "…", "logo": "https://… or empty", "announcement": "plain text, may contain \n",
-            "support": [{ "label": "Telegram 群组", "url": "https://…|mailto:…|tg://…", "icon": "telegram|chat|book|mail|link" }] },
+            "support": [{ "label": "Telegram group", "url": "https://…|mailto:…|tg://…", "icon": "telegram|chat|book|mail|link" }] },
   "user": { "name": "alice", "status": "active|limited|expired|disabled", "enabled": true,
             "up": 0, "down": 0, "used": 0, "total": 0,          // bytes; total 0 = unlimited
             "expire_at": 0, "days_left": null,                   // unix seconds; 0 / null = never
@@ -93,27 +94,57 @@ If you don't use `%SBP_DATA%`, fetch the same object from `location.pathname + '
             "formats": { "auto": "…", "base64": "…", "singbox": "…", "mihomo": "…", "surge": "…", "links": "…", "json": "…" } },
   "clients": [{ "id": "singbox", "name": "sing-box", "platforms": ["ios","android","macos","windows","linux"],
                 "url": "sing-box://import-remote-profile?url=…", "download": "https://…" }],
-  "nodes": [{ "id": 0, "name": "🇺🇸 洛杉矶 CN2", "protocol": "vless|vmess|trojan|shadowsocks|hysteria2|tuic|…",
+  "nodes": [{ "id": 0, "name": "🇺🇸 Los Angeles CN2", "protocol": "vless|vmess|trojan|shadowsocks|hysteria2|tuic|…",
               "transport": "tcp|ws|grpc|http|httpupgrade|quic", "security": "reality|tls|none", "flow": "",
               "address": "la.example.com", "port": 443, "sni": "…",
               "region": { "code": "US", "flag": "🇺🇸" },          // best-effort guess from the name, or null
               "uri": "vless://…", "qr": "data:image/png;base64,…" }],
   "theme": { "id": "my-theme", "version": "1.2.0", "settings": { /* merged with defaults */ } },
-  // 配置模板: routing profiles the user may switch between (订阅 → 分流规则). Every link is
+  // routing profiles the user may switch between (Subscriptions → Routing). Every link is
   // pre-rendered, so a theme only swaps values; "qr" is empty when there is a single profile.
-  "profiles": [{ "slug": "standard", "name": "标准分流", "description": "…",
+  "profiles": [{ "slug": "standard", "name": "Standard", "description": "…",
                  "url": "https://…/s/<token>?profile=standard", "qr": "data:image/png;base64,…",
                  "formats": { /* as subscription.formats */ }, "clients": { "singbox": "sing-box://…", "mihomo": "clash://…" } }],
-  "selected_profile": "standard"   // in effect for this request (?profile= honoured when selectable)
+  "selected_profile": "standard",  // in effect for this request (?profile= honoured when selectable)
+  "lang": "en",                    // "en" or "zh": the visitor's language, see below
+  "locale": "en"                   // the same as a BCP 47 tag: "en" or "zh-CN" (for Intl / toLocaleString)
 }
 ```
 
 - `nodes` is empty unless `user.status` is `active`.
 - Credentials only appear inside `uri` (and its QR code).
-- `clients` follows the admin's client list in 订阅 → 订阅页.
+- `clients` follows the admin's client list in Subscriptions → Subscription page.
 - `subscription` and `clients` already reflect `selected_profile`. To switch, take the values from the
   matching `profiles` entry; keep the choice in the page URL (`?profile=<slug>`), not storage.
 - New fields may be added within `api: 1`. Ignore fields you don't know.
+
+## Language
+
+sbmaster picks the page language per request and passes it to the theme as `lang` / `locale` (and
+`%SBP_LANG%`):
+
+1. `?lang=en` or `?lang=zh` (any `zh-*` tag counts as `zh`) on the subscription URL, if present;
+2. otherwise the first tag of the browser's `Accept-Language`: `zh`, `zh-CN`, `zh-TW`, `zh-HK`, … give
+   `zh`;
+3. otherwise English.
+
+Only `en` and `zh` exist; English is the fallback. Responses carry `Content-Language` and
+`Vary: Accept-Language`.
+
+A theme cannot store the visitor's choice (no storage in the sandbox), so a language switcher is a
+plain link to the same URL with `?lang=` set, keeping the other parameters (`?profile=` …). The
+default theme's `langHref()` in `app.js` does exactly that and keeps all its strings in one small
+dictionary keyed by `lang`. With `?format=json`, pass `&lang=` too.
+
+Localized manifest fields (`name`, `description`, and each setting's `label`, `help` and option
+`label`) are objects keyed by language tag. For a `zh` request the first of `zh-CN`, `zh`,
+`zh-Hans`, `zh-TW`, `zh-HK`, `zh-Hant`, `en` that is present wins; for `en`, `en`, `en-US`, `en-GB`,
+then `zh-CN`, `zh`; after that any value. The admin panel resolves them in the admin's UI language.
+Data entered by the admin (site title, announcement, support labels, profile names, node names) is
+passed through as is.
+
+The admin preview (`/api/sub-themes/<id>/preview`) follows the same rules; the panel adds
+`&lang=<UI language>` so the preview matches the admin's language.
 
 ## Sandbox: what a theme can and cannot do
 
@@ -156,7 +187,7 @@ regenerate it, run `node web/scripts/tokens/gen-panel.mjs` and check with
 
 ## Developing locally
 
-- 订阅 → 订阅页 → 实时预览 renders any theme with sample data (normal / over quota / expired) or a
+- Subscriptions → Subscription page → Live preview renders any theme with sample data (normal / over quota / expired) or a
   real user. Unsaved theme settings can be previewed with
   `/api/sub-themes/<id>/preview?settings=<json>`.
 - `curl '<sub url>?format=json'` gives you real data to develop against. To work without uploading,

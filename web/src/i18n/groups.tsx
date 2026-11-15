@@ -1,0 +1,56 @@
+import type { ReactNode } from 'react'
+import { dict } from '.'
+
+export const D = dict({
+  deleted: 'Group deleted',
+  title: 'Groups',
+  subtitle: 'Groups connect users to inbounds: a user can use every inbound in their groups. The default group automatically includes new users and new inbounds.',
+  newGroup: 'New group',
+  emptyTitle: 'No groups yet',
+  emptyHint: 'Without a group, users can’t use any inbound',
+  editGroup: 'Edit group',
+  deleteGroup: 'Delete group',
+  noInbounds: 'No inbounds — users in this group can’t connect',
+  routing: 'Routing profile: ',
+  deleteBody: (name: ReactNode, users: number, orphans: ReactNode | null, link: (label: string) => ReactNode): ReactNode => <>Delete <b className="text-text">{name}</b> ({users} user{users === 1 ? '' : 's'}). {orphans
+    ? <><b className="text-bad">{orphans}</b> of them belong only to this group and will lose access to every inbound — {link('review those users first')}.</>
+    : 'All of these users also belong to other groups and keep their inbounds.'} This can’t be undone.</>,
+  savedX: (n: string) => `Saved group ${n}`,
+  editX: (n: string) => `Edit group ${n}`,
+  defaultSwitch: 'Default group (new users and inbounds join automatically)',
+  profileLabel: 'Routing profile (client rules in generated subscriptions)',
+  useDefault: 'Use the default profile',
+  defaultSuffix: ' (default)',
+  profileDesc: 'For users in several groups, the lowest-ID group with a routing profile wins; a user’s own setting takes precedence',
+  included: (n: number) => `Included inbounds (${n})`,
+  selectAll: 'Select all',
+  clear: 'Clear',
+  noInboundsYet: 'No inbounds yet',
+  stopped: ' (disabled)',
+}, {
+  deleted: '分组已删除',
+  title: '分组',
+  subtitle: '分组把用户和入站连起来：用户能使用其所在分组包含的所有入站。默认分组会自动包含新用户和新入站',
+  newGroup: '新建分组',
+  emptyTitle: '还没有分组',
+  emptyHint: '没有分组时用户无法使用任何入站',
+  editGroup: '编辑分组',
+  deleteGroup: '删除分组',
+  noInbounds: '没有入站，这个分组的用户无法连接',
+  routing: '分流配置：',
+  deleteBody: (name, users, orphans, link) => <>删除 <b className="text-text">{name}</b>（{users} 个用户）。{orphans
+    ? <>其中 <b className="text-bad">{orphans}</b> 个用户只属于这个分组，删除后将无法使用任何入站，{link('先查看这些用户')}。</>
+    : '这些用户都还属于其他分组，不会失去入站。'}此操作不可撤销。</>,
+  savedX: (n) => `已保存分组 ${n}`,
+  editX: (n) => `编辑分组 ${n}`,
+  defaultSwitch: '默认分组（新用户、新入站自动加入）',
+  profileLabel: '分流配置（订阅生成的客户端规则）',
+  useDefault: '使用默认配置',
+  defaultSuffix: '（默认）',
+  profileDesc: '用户属于多个分组时取 ID 最小且设置了分流配置的分组；用户自己的设置优先',
+  included: (n) => `包含的入站（${n}）`,
+  selectAll: '全选',
+  clear: '清空',
+  noInboundsYet: '还没有入站',
+  stopped: '（停用）',
+})

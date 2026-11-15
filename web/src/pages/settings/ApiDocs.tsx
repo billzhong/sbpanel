@@ -4,6 +4,8 @@ import { api } from '../../lib/api'
 import { href } from '../../lib/router'
 import { scopeLabel } from '../../lib/apikeys'
 import { Badge, Callout, Card, Chip, CopyButton, Field, PageHeader, Skeleton, cx } from '../../ui/kit'
+import { tr, useT } from '../../i18n'
+import { AD } from '../../i18n/apidocs'
 
 // A small OpenAPI 3.1 renderer (no CDN bundle: the panel CSP stays tight).
 
@@ -32,6 +34,7 @@ const METHOD_TONE: Record<string, string> = {
 const ORDER = ['get', 'post', 'put', 'patch', 'delete']
 
 export function ApiDocs() {
+  const t = useT(AD)
   const spec = useQuery({ queryKey: ['openapi'], queryFn: () => api<Spec>('/openapi.json'), staleTime: Infinity })
   const [q, setQ] = useState('')
   const [tag, setTag] = useState('')
@@ -51,19 +54,19 @@ export function ApiDocs() {
 
   return (
     <div className="animate-page-in">
-      <PageHeader title="API 文档" subtitle={spec.data ? `${spec.data.info.title} · OpenAPI 3.1 · ${ops.length} 个接口` : 'OpenAPI 3.1'}
+      <PageHeader title={t.title} subtitle={spec.data ? t.count(spec.data.info.title, ops.length) : 'OpenAPI 3.1'}
         actions={<>
-          <a href={href('settings', { s: 'api' })} className="inline-flex h-8 items-center rounded-full bg-overlay px-4 text-sm font-medium text-text outline-none transition-colors duration-(--dur-1) hover:bg-hl-med/70 focus-visible:ring-2 focus-visible:ring-accent">← 返回设置</a>
-          <a href="/api/openapi.json" download="sbpanel-openapi.json" className="inline-flex h-8 items-center rounded-full bg-overlay px-4 text-sm font-medium text-text outline-none transition-colors duration-(--dur-1) hover:bg-hl-med/70 focus-visible:ring-2 focus-visible:ring-accent">下载 JSON</a>
+          <a href={href('settings', { s: 'api' })} className="inline-flex h-8 items-center rounded-full bg-overlay px-4 text-sm font-medium text-text outline-none transition-colors duration-(--dur-1) hover:bg-hl-med/70 focus-visible:ring-2 focus-visible:ring-accent">{t.backToSettings}</a>
+          <a href="/api/openapi.json" download="sbpanel-openapi.json" className="inline-flex h-8 items-center rounded-full bg-overlay px-4 text-sm font-medium text-text outline-none transition-colors duration-(--dur-1) hover:bg-hl-med/70 focus-visible:ring-2 focus-visible:ring-accent">{t.dlJson}</a>
         </>} />
       {spec.isLoading && <Skeleton className="h-64" />}
-      {spec.error && <Callout tone="bad">加载失败：{(spec.error as Error).message}</Callout>}
+      {spec.error && <Callout tone="bad">{t.loadFailed}{(spec.error as Error).message}</Callout>}
       {spec.data && (
         <div className="flex flex-col gap-4">
-          <Card title="认证与权限">
+          <Card title={t.authScopes}>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="flex min-w-0 flex-col gap-2 text-[13px] text-subtle">
-                <p>在 设置 → API 与智能体 创建密钥，请求时带上 <span className="font-mono text-text">Authorization: Bearer sbp_…</span>。密钥按权限限制可用接口，超出速率限制返回 429 并带 <span className="font-mono">Retry-After</span>。</p>
+                <p>{t.authIntro()}</p>
                 <div className="flex min-w-0 items-center gap-2">
                   <pre className="min-w-0 flex-1 rounded-[10px] border bg-base px-3 py-2 font-mono text-[12px] whitespace-pre-wrap [overflow-wrap:anywhere] text-text">{`curl -H "Authorization: Bearer sbp_…" ${location.origin}/api/users`}</pre>
                   <CopyButton text={`curl -H "Authorization: Bearer sbp_…" ${location.origin}/api/users`} />
@@ -77,14 +80,14 @@ export function ApiDocs() {
             </div>
           </Card>
           <div className="flex flex-col gap-3">
-            <Field label="搜索接口" hideLabel value={q} onChange={setQ} placeholder="搜索路径、说明或权限，例如 users、traffic、users:write" type="search" />
+            <Field label={t.searchLabel} hideLabel value={q} onChange={setQ} placeholder={t.searchPh} type="search" />
             <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-              <Chip active={!tag} onPress={() => setTag('')} count={ops.length}>全部</Chip>
-              {tags.map((t) => <Chip key={t.name} active={tag === t.name} onPress={() => setTag(tag === t.name ? '' : t.name)} count={counts(t.name)}>{t.name}</Chip>)}
+              <Chip active={!tag} onPress={() => setTag('')} count={ops.length}>{t.all}</Chip>
+              {tags.map((g) => <Chip key={g.name} active={tag === g.name} onPress={() => setTag(tag === g.name ? '' : g.name)} count={counts(g.name)}>{g.name}</Chip>)}
             </div>
           </div>
           <Card pad={false}>
-            {shown.length === 0 ? <p className="px-5 py-8 text-center text-[13px] text-muted">没有匹配的接口</p> : (
+            {shown.length === 0 ? <p className="px-5 py-8 text-center text-[13px] text-muted">{t.noMatch}</p> : (
               <ul className="divide-y">
                 {shown.map((o) => (
                   <OpRow key={o.key} o={o} spec={spec.data!} open={open === o.key} onToggle={() => setOpen(open === o.key ? null : o.key)} />
@@ -108,9 +111,10 @@ function scopeTone(s?: string): 'neutral' | 'warn' | 'accent' | 'good' {
   if (!s || s === 'any' || s === 'session' || s === 'key' || s === 'read') return 'neutral'
   return 'accent'
 }
-const scopeText = (s?: string) => ({ public: '公开', any: '任意密钥', session: '仅登录会话', key: '仅密钥' } as Record<string, string>)[s ?? ''] ?? (s ? `${s}` : '')
+const scopeText = (s?: string) => { const t = tr(AD); return ({ public: t.s_public, any: t.s_any, session: t.s_session, key: t.s_key } as Record<string, string>)[s ?? ''] ?? (s ? `${s}` : '') }
 
 function OpRow({ o, spec, open, onToggle }: { o: Op; spec: Spec; open: boolean; onToggle: () => void }) {
+  const t = useT(AD)
   const id = 'op-' + (o.op.operationId ?? o.key).replace(/[^a-z0-9_-]/gi, '_')
   const scope = o.op['x-required-scope']
   return (
@@ -126,7 +130,7 @@ function OpRow({ o, spec, open, onToggle }: { o: Op; spec: Spec; open: boolean; 
         <div id={id} className="animate-content-in flex flex-col gap-4 border-t bg-base/50 px-4 py-4 sm:px-5">
           {o.op.description && <p className="text-[13px] text-subtle">{renderInlineCode(o.op.description)}</p>}
           {o.op.parameters && o.op.parameters.length > 0 && (
-            <Section title="参数">
+            <Section title={t.params}>
               <div className="overflow-x-auto">
                 <table className="w-full text-[13px]">
                   <tbody>
@@ -144,18 +148,18 @@ function OpRow({ o, spec, open, onToggle }: { o: Op; spec: Spec; open: boolean; 
             </Section>
           )}
           {o.op.requestBody && Object.entries(o.op.requestBody.content).map(([ct, c]) => (
-            <Section key={ct} title={<>请求体 <span className="font-mono font-normal text-muted">{ct}</span></>}><SchemaView s={c.schema} spec={spec} /></Section>
+            <Section key={ct} title={<>{t.body} <span className="font-mono font-normal text-muted">{ct}</span></>}><SchemaView s={c.schema} spec={spec} /></Section>
           ))}
           {o.op.responses?.['200']?.content && Object.entries(o.op.responses['200'].content).map(([ct, c]) => (
-            <Section key={ct} title={<>响应 200 <span className="font-mono font-normal text-muted">{ct}</span></>}><SchemaView s={c.schema} spec={spec} /></Section>
+            <Section key={ct} title={<>{t.resp} <span className="font-mono font-normal text-muted">{ct}</span></>}><SchemaView s={c.schema} spec={spec} /></Section>
           ))}
-          <Section title="错误">
+          <Section title={t.errors}>
             <div className="flex flex-wrap gap-1.5 text-xs">
-              {Object.keys(o.op.responses ?? {}).filter((c) => c !== '200').map((c) => <Badge key={c} tone={c === '429' ? 'warn' : 'bad'}>{c} {({ '400': '参数错误', '401': '未认证', '403': '无权限', '429': '限流' } as Record<string, string>)[c]}</Badge>)}
-              <span className="self-center text-muted">返回 <span className="font-mono">{'{"error": "…"}'}</span></span>
+              {Object.keys(o.op.responses ?? {}).filter((c) => c !== '200').map((c) => <Badge key={c} tone={c === '429' ? 'warn' : 'bad'}>{c} {({ '400': t.e400, '401': t.e401, '403': t.e403, '429': t.e429 } as Record<string, string>)[c]}</Badge>)}
+              <span className="self-center text-muted">{t.returns}<span className="font-mono">{'{"error": "…"}'}</span></span>
             </div>
           </Section>
-          {scope && !['public', 'any', 'session', 'key'].includes(scope) && <p className="text-xs text-muted">所需权限：<span className="font-mono">{scope}</span>（{scopeLabel(scope)}）或 admin；登录会话不受限。</p>}
+          {scope && !['public', 'any', 'session', 'key'].includes(scope) && <p className="text-xs text-muted">{t.needScope(scope, scopeLabel(scope))}</p>}
         </div>
       )}
     </li>
@@ -217,8 +221,8 @@ function SchemaView({ s, spec, depth = 0 }: { s: Schema; spec: Spec; depth?: num
               <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
                 <span className="font-mono text-text">{k}{r.required?.includes(k) && <span className="text-bad">*</span>}</span>
                 <span className="font-mono text-xs text-accent">{typeName(p, spec)}</span>
-                {pr?.format === 'unix-time' && <span className="text-xs text-muted">unix 秒</span>}
-                {pr?.format === 'bytes' && <span className="text-xs text-muted">字节</span>}
+                {pr?.format === 'unix-time' && <span className="text-xs text-muted">{tr(AD).unixSec}</span>}
+                {pr?.format === 'bytes' && <span className="text-xs text-muted">{tr(AD).bytes}</span>}
                 {pr?.description && <span className="min-w-0 text-xs text-subtle">{pr.description}</span>}
                 {pr?.enum && <EnumList values={pr.enum} />}
               </div>

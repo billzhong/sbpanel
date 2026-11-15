@@ -3,8 +3,10 @@ import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/
 import { api, type Node, type Settings, type User } from './api'
 import { href } from './router'
 import { useToast, type ToastOpts } from '../ui/kit'
+import { tr } from '../i18n'
+import { C } from '../i18n/common'
 
-const errText = (e: unknown) => (e as Error)?.message || '操作失败'
+export const errText = (e: unknown) => (e as Error)?.message || tr(C).actionFailed
 
 /**
  * A mutation with the standard plumbing: pending state, an error toast, cache invalidation
@@ -14,7 +16,7 @@ export function useAction<V = void, R = unknown>(opts: {
   fn: (v: V) => Promise<R>
   success?: string | ((r: R, v: V) => string | undefined)
   invalidate?: QueryKey[]
-  /** Saves that change node config: show "正在下发" and update it in place once nodes catch up. */
+  /** Saves that change node config: show "Deploying…" and update it in place once nodes catch up. */
   apply?: boolean
   onSuccess?: (r: R, v: V) => void
 }) {
@@ -26,7 +28,7 @@ export function useAction<V = void, R = unknown>(opts: {
     onSuccess: (r, v) => {
       for (const k of opts.invalidate ?? []) qc.invalidateQueries({ queryKey: k })
       const msg = typeof opts.success === 'function' ? opts.success(r, v) : opts.success
-      if (opts.apply) track({ text: msg ?? '已保存' })
+      if (opts.apply) track({ text: msg ?? tr(C).saved })
       else if (msg) toast('good', msg)
       opts.onSuccess?.(r, v)
     },
@@ -35,15 +37,16 @@ export function useAction<V = void, R = unknown>(opts: {
 }
 
 /**
- * Shows "<text> · 正在下发到 N 个节点" and polls /api/nodes until every online node has applied
- * the new revision, then updates the same toast to "已在所有节点生效" (or points at the failing nodes).
+ * Shows "<text> · Deploying to N nodes" and polls /api/nodes until every online node has applied
+ * the new revision, then updates the same toast to "Live on all nodes" (or points at the failing nodes).
  */
 export function useApplyTracker() {
   const toast = useToast()
   const qc = useQueryClient()
   return useCallback((o: { text: string; action?: ToastOpts['action'] }) => {
     const cached = qc.getQueryData<Node[]>(['nodes'])?.filter((n) => n.enrolled && n.online).length
-    const id = toast.show({ tone: 'pending', text: `${o.text} · 正在下发到${cached ? ` ${cached} 个` : ''}节点…`, action: o.action })
+    const t = tr(C)
+    const id = toast.show({ tone: 'pending', text: t.pushing(o.text, cached), action: o.action })
     const t0 = Date.now()
     let first = true
     const tick = async () => {
@@ -56,23 +59,23 @@ export function useApplyTracker() {
         if (first) {
           first = false
           if (on.length === 0) {
-            toast.update(id, { tone: 'info', text: `${o.text} · 没有在线节点，节点上线后自动下发`, link: { label: '查看节点', href: href('nodes') } })
+            toast.update(id, { tone: 'info', text: t.noOnline(o.text), link: { label: t.viewNodes, href: href('nodes') } })
             return
           }
-          toast.update(id, { text: `${o.text} · 正在下发到 ${on.length} 个节点…` })
+          toast.update(id, { text: t.pushing(o.text, on.length) })
         }
         const behind = on.filter((n) => n.applied_revision < n.revision)
         const failed = behind.filter((n) => n.apply_error)
         if (behind.length === 0) {
-          toast.update(id, { tone: 'good', text: offline ? `${o.text} · 已在 ${on.length} 个在线节点生效（${offline} 个离线）` : `${o.text} · 已在所有节点生效` })
+          toast.update(id, { tone: 'good', text: offline ? t.appliedSome(o.text, on.length, offline) : t.appliedAll(o.text) })
           return
         }
         if (failed.length && el > 3000) {
-          toast.update(id, { tone: 'bad', text: `${o.text} · ${failed.length} 个节点下发失败`, link: { label: '查看节点', href: href('nodes') } })
+          toast.update(id, { tone: 'bad', text: t.failedOn(o.text, failed.length), link: { label: t.viewNodes, href: href('nodes') } })
           return
         }
         if (el > 15000) {
-          toast.update(id, { tone: 'info', text: `${o.text} · ${behind.length} 个节点仍未生效`, link: { label: '查看节点', href: href('nodes') } })
+          toast.update(id, { tone: 'info', text: t.pendingOn(o.text, behind.length), link: { label: t.viewNodes, href: href('nodes') } })
           return
         }
       }
@@ -112,8 +115,8 @@ export function useUserBatch() {
       refresh()
       const snaps = opts?.undo ?? r.undo
       const undo = snaps?.length ? {
-        label: '撤销', onPress: () => {
-          batch(snaps.map((s) => s.id), 'restore', snaps).then(() => { flashRows(ids); refresh(); toast('good', '已撤销') }, (e) => toast('bad', errText(e)))
+        label: tr(C).undo, onPress: () => {
+          batch(snaps.map((s) => s.id), 'restore', snaps).then(() => { flashRows(ids); refresh(); toast('good', tr(C).undone) }, (e) => toast('bad', errText(e)))
         },
       } : undefined
       track({ text, action: undo })
@@ -172,7 +175,7 @@ export function useUserPatch() {
     refresh()
     track({
       text, action: {
-        label: '撤销', onPress: () => batch([u.id], 'restore', [snap]).then(() => { flashRows([u.id]); refresh(); toast('good', '已撤销') }, (e) => toast('bad', errText(e))),
+        label: tr(C).undo, onPress: () => batch([u.id], 'restore', [snap]).then(() => { flashRows([u.id]); refresh(); toast('good', tr(C).undone) }, (e) => toast('bad', errText(e))),
       },
     })
   }, [qc, toast, track])

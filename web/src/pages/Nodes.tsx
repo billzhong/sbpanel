@@ -8,6 +8,11 @@ import { ActionMenu, Button, Callout, Card, Confirm, CopyText, Empty, Field, Mod
 import { IconCheck, IconPlus } from '../ui/icons'
 import { NodeCard } from './Overview'
 import { HealthDot, ProbeDrawer, useProbeResults, useRunProbe } from '../ui/probe'
+import { tr } from '../i18n'
+import { C } from '../i18n/common'
+import { ND } from '../i18n/nodes'
+
+const T = () => tr(ND)
 
 export function NodesPage() {
   const { params } = useRoute()
@@ -31,24 +36,24 @@ export function NodesPage() {
   })
   const del = useAction({
     fn: (id: string) => api(`/nodes/${id}`, { method: 'DELETE' }),
-    success: '节点已删除', invalidate: [['nodes'], ['inbounds'], ['overview']],
+    success: T().deleted, invalidate: [['nodes'], ['inbounds'], ['overview']],
   })
 
   return (
     <>
-      <PageHeader title="节点" subtitle="节点进程主动连接 master（mTLS），离线时按最后一次配置继续服务，流量在本地落盘后补传"
-        actions={<Button variant="primary" onPress={() => setWizard({})}><IconPlus size={16} />添加节点</Button>} />
+      <PageHeader title={T().title} subtitle={T().subtitle}
+        actions={<Button variant="primary" onPress={() => setWizard({})}><IconPlus size={16} />{T().add}</Button>} />
       {nodes.isPending && !nodes.data && <div className="grid gap-4 md:grid-cols-2"><Skeleton className="h-64" /><Skeleton className="h-64" /></div>}
       {nodes.data?.length === 0 && (
-        <Card><Empty title="还没有节点" hint="添加节点后会得到一行接入命令，在服务器上执行即可完成 mTLS 证书签发并上线"
-          action={<Button variant="primary" onPress={() => setWizard({})}>添加节点</Button>} /></Card>
+        <Card><Empty title={T().empty} hint={T().emptyHint}
+          action={<Button variant="primary" onPress={() => setWizard({})}>{T().add}</Button>} /></Card>
       )}
       <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
         {nodes.data?.map((n) => (
           <NodeCard key={n.id} n={n} actions={<div className="flex shrink-0 items-center gap-0.5">
             {n.inbounds > 0 && <HealthDot results={probeOf(n.id)} running={runProbe.isPending && runProbe.variables?.node_id === n.id}
               onPress={() => probeOf(n.id).length ? setProbeNode(n) : testNode(n)} />}
-            <ActionMenu label="节点操作" onAction={(k) => {
+            <ActionMenu label={T().nodeActions} onAction={(k) => {
               if (k === 'probe') testNode(n)
               if (k === 'edit') setEditing(n)
               if (k === 'token') token.mutate(n)
@@ -56,29 +61,29 @@ export function NodesPage() {
               if (k === 'inbound') go('inbounds', { new: 1, node: n.id })
               if (k === 'delete') setDeleting(n)
             }} items={[
-              { id: 'probe', label: '测试连通性', isDisabled: n.inbounds === 0 }, { id: 'edit', label: '编辑' }, { id: 'inbound', label: '为它创建入站' },
-              { id: 'token', label: n.enrolled ? '重新接入（换证书）' : '生成接入命令' }, { id: 'spec', label: '查看下发配置' }, 'sep',
-              { id: 'delete', label: '删除节点', danger: true },
+              { id: 'probe', label: T().testConn, isDisabled: n.inbounds === 0 }, { id: 'edit', label: tr(C).edit }, { id: 'inbound', label: T().createInbound },
+              { id: 'token', label: n.enrolled ? T().reenroll : T().enrollCmd }, { id: 'spec', label: T().viewSpec }, 'sep',
+              { id: 'delete', label: T().delete, danger: true },
             ]} />
           </div>} />
         ))}
       </div>
 
-      <ProbeDrawer isOpen={!!probeNode} onClose={() => setProbeNode(null)} title={`${probeSticky?.name ?? ''} · 入站连通性`}
+      <ProbeDrawer isOpen={!!probeNode} onClose={() => setProbeNode(null)} title={T().probeTitle(probeSticky?.name ?? '')}
         results={probeSticky ? probeOf(probeSticky.id) : []} running={runProbe.isPending} onRetry={() => probeSticky && runProbe.mutate({ node_id: probeSticky.id })} />
       <Presence value={wizard}>
         {(w, open) => <AddNodeWizard isOpen={open} initial={w} onClose={() => setWizard(null)} />}
       </Presence>
       <Presence value={editing}>{(n, open) => <EditNode isOpen={open} n={n} onClose={() => setEditing(null)} />}</Presence>
       <Presence value={specOf}>{(n, open) => <SpecView isOpen={open} n={n} onClose={() => setSpecOf(null)} />}</Presence>
-      <Confirm isOpen={!!deleting} onOpenChange={(v) => !v && setDeleting(null)} danger title="删除节点"
-        confirmLabel="删除节点" onConfirm={() => deleting && del.mutate(deleting.id)}
-        body={<>删除 <b className="text-text">{delSticky?.name}</b> 会同时删除它的 {delSticky?.inbounds ?? 0} 个入站，并立刻吊销节点证书。历史流量保留。此操作不可撤销。</>} />
+      <Confirm isOpen={!!deleting} onOpenChange={(v) => !v && setDeleting(null)} danger title={T().delete}
+        confirmLabel={T().delete} onConfirm={() => deleting && del.mutate(deleting.id)}
+        body={T().delBody(<b className="text-text">{delSticky?.name}</b>, delSticky?.inbounds ?? 0)} />
     </>
   )
 }
 
-const stepNames = ['名称和地址', '接入命令', '检测连接']
+const stepNames = () => [T().step1, T().step2, T().step3]
 
 /** Add-node wizard: name → commands → live detection, all in one dialog. */
 function AddNodeWizard({ isOpen, initial, onClose }: { isOpen: boolean; initial: { enroll?: Enroll; name?: string }; onClose: () => void }) {
@@ -94,7 +99,7 @@ function AddNodeWizard({ isOpen, initial, onClose }: { isOpen: boolean; initial:
     fn: () => api<Enroll>('/nodes', { method: 'POST', body: { name, public_address: pubAddr } }),
     invalidate: [['nodes']], onSuccess: (e) => { setEnroll(e); setStep(2) },
   })
-  const regen = useAction({ fn: () => api<Enroll>(`/nodes/${enroll!.node_id}/token`, { method: 'POST' }), success: '已生成新的接入令牌', onSuccess: setEnroll })
+  const regen = useAction({ fn: () => api<Enroll>(`/nodes/${enroll!.node_id}/token`, { method: 'POST' }), success: T().newToken, onSuccess: setEnroll })
   // Snapshot of the node before enrolling, so "re-enroll" of an existing node waits for a fresh certificate.
   const [baseline] = useState(() => initial.enroll ? qc.getQueryData<Node[]>(['nodes'])?.find((n) => n.id === initial.enroll!.node_id)?.cert_expire ?? 0 : 0)
   const nodes = useQuery({ queryKey: ['nodes'], queryFn: () => api<Node[]>('/nodes'), refetchInterval: step >= 2 && isOpen ? 2000 : 5000 })
@@ -109,23 +114,23 @@ function AddNodeWizard({ isOpen, initial, onClose }: { isOpen: boolean; initial:
   const manualCmd = enroll ? `sbnode ${enroll.command.replace(/^sbnode /, '')} --dir ${dir}\nsbnode run --dir ${dir}` : ''
 
   const footer = step === 1 ? <>
-    <Button onPress={onClose}>取消</Button>
-    <Button variant="primary" isPending={create.isPending} isDisabled={!name.trim()} onPress={() => create.mutate()}>下一步：生成接入命令</Button>
+    <Button onPress={onClose}>{tr(C).cancel}</Button>
+    <Button variant="primary" isPending={create.isPending} isDisabled={!name.trim()} onPress={() => create.mutate()}>{T().nextCmd}</Button>
   </> : step === 2 ? <>
-    <Button variant="ghost" className="mr-auto" onPress={onClose}>稍后再接入</Button>
-    <Button variant="primary" onPress={() => setStep(3)}>我已执行，开始检测</Button>
+    <Button variant="ghost" className="mr-auto" onPress={onClose}>{T().later}</Button>
+    <Button variant="primary" onPress={() => setStep(3)}>{T().ranIt}</Button>
   </> : <>
-    {!applied && <Button variant="ghost" className="mr-auto" onPress={() => setStep(2)}>查看接入命令</Button>}
+    {!applied && <Button variant="ghost" className="mr-auto" onPress={() => setStep(2)}>{T().showCmd}</Button>}
     {applied ? <>
-      <Button onPress={onClose}>完成</Button>
-      <Button variant="primary" onPress={() => { onClose(); go('inbounds', { new: 1, node: enroll!.node_id }) }}>为它创建入站</Button>
-    </> : <Button onPress={onClose}>关闭（后台继续）</Button>}
+      <Button onPress={onClose}>{T().done}</Button>
+      <Button variant="primary" onPress={() => { onClose(); go('inbounds', { new: 1, node: enroll!.node_id }) }}>{T().createInbound}</Button>
+    </> : <Button onPress={onClose}>{T().closeBg}</Button>}
   </>
 
   return (
-    <ModalDialog wide isOpen={isOpen} onOpenChange={(v) => !v && onClose()} title={initial.enroll ? `接入 ${initial.name ?? '节点'}` : '添加节点'} footer={footer}>
-      <ol className="mb-5 flex items-center gap-2 text-[13px]" aria-label="步骤">
-        {stepNames.map((s, i) => {
+    <ModalDialog wide isOpen={isOpen} onOpenChange={(v) => !v && onClose()} title={initial.enroll ? T().enrollX(initial.name ?? T().nodeWord) : T().add} footer={footer}>
+      <ol className="mb-5 flex items-center gap-2 text-[13px]" aria-label={T().steps}>
+        {stepNames().map((s, i) => {
           const k = i + 1
           const done = k < step || (k === 3 && applied)
           return (
@@ -143,45 +148,44 @@ function AddNodeWizard({ isOpen, initial, onClose }: { isOpen: boolean; initial:
       <div key={step} className="animate-content-in">
         {step === 1 && (
           <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); if (name.trim()) create.mutate() }}>
-            <Field label="节点名称" value={name} onChange={setName} placeholder="例如 la-01" autoFocus />
-            <Field label="公网地址（可选）" value={pubAddr} onChange={setPubAddr} placeholder="la.example.com 或 IP" description="订阅里客户端连接的地址，之后也可以修改" />
+            <Field label={T().name} value={name} onChange={setName} placeholder={T().namePh} autoFocus />
+            <Field label={T().pubAddr} value={pubAddr} onChange={setPubAddr} placeholder={T().pubPh} description={T().pubHint} />
             <button type="submit" hidden />
           </form>
         )}
         {step === 2 && enroll && (
           <div className="flex flex-col gap-4 text-[13px]">
-            <Segmented label="接入方式" value={how} onChange={setHow} options={[{ id: 'script', label: '一键安装脚本（推荐）' }, { id: 'manual', label: '手动 enroll + run' }]} />
+            <Segmented label={T().method} value={how} onChange={setHow} options={[{ id: 'script', label: T().script }, { id: 'manual', label: T().manual }]} />
             {how === 'script' ? (
               <div key="s" className="flex animate-content-in flex-col gap-2">
-                <p className="text-subtle">把 <span className="font-mono">sbnode</span> 二进制和仓库里的 <span className="font-mono">deploy/</span> 目录传到服务器，然后执行：</p>
+                <p className="text-subtle">{T().scriptIntro()}</p>
                 <Code text={scriptCmd} />
-                <p className="text-xs text-muted">脚本会安装到 /usr/local/bin、签发证书并以 systemd 服务 <span className="font-mono">sbnode</span> 启动。</p>
+                <p className="text-xs text-muted">{T().scriptNote()}</p>
               </div>
             ) : (
               <div key="m" className="flex animate-content-in flex-col gap-2">
-                <p className="text-subtle">签发 mTLS 证书，然后前台运行（或自己写 systemd 单元）：</p>
+                <p className="text-subtle">{T().manualIntro}</p>
                 <Code text={manualCmd} />
               </div>
             )}
             {expired ? (
-              <Callout tone="bad"><span className="flex flex-wrap items-center justify-between gap-2">接入令牌已过期，需要重新生成。<Button size="sm" variant="primary" isPending={regen.isPending} onPress={() => regen.mutate()}>重新生成</Button></span></Callout>
+              <Callout tone="bad"><span className="flex flex-wrap items-center justify-between gap-2">{T().expired}<Button size="sm" variant="primary" isPending={regen.isPending} onPress={() => regen.mutate()}>{T().regen}</Button></span></Callout>
             ) : (
-              <p className="text-xs text-muted">令牌一次性有效，{dateTime(enroll.expires_at)} 前使用（还剩 {Math.max(0, Math.round((enroll.expires_at - now) / 60))} 分钟）。节点生成自己的私钥，只把证书请求发给 master，并用 CA 指纹校验 master。</p>
+              <p className="text-xs text-muted">{T().tokenNote(dateTime(enroll.expires_at), Math.max(0, Math.round((enroll.expires_at - now) / 60)))}</p>
             )}
             <div className="rounded-[10px] bg-overlay px-3 py-2 text-xs text-subtle">
-              master 地址 <span className="font-mono text-text">{enroll.master}</span>，CA SHA-256 <span className="font-mono break-all text-text">{enroll.ca_sha256}</span>。
-              如果节点要通过别的地址访问 master，启动 sbmaster 时加 <span className="font-mono">--public-grpc host:port</span>。
+              {T().masterInfo(<span className="font-mono text-text">{enroll.master}</span>, <span className="font-mono break-all text-text">{enroll.ca_sha256}</span>, <span className="font-mono">--public-grpc host:port</span>)}
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted"><Pulse />正在等待节点接入，检测到后自动进入下一步</div>
+            <div className="flex items-center gap-2 text-xs text-muted"><Pulse />{T().waiting}</div>
           </div>
         )}
         {step === 3 && enroll && (
           <div className="flex flex-col gap-1">
-            <Check state={enrolled ? 'done' : expired ? 'fail' : 'wait'} wait="等待节点接入…" done="已签发证书" fail="令牌已过期"
-              action={expired ? <Button size="sm" variant="primary" isPending={regen.isPending} onPress={() => { regen.mutate(); setStep(2) }}>重新生成</Button> : undefined} />
-            <Check state={online ? 'done' : enrolled ? 'wait' : 'idle'} wait="等待节点连接 master…" done={`已连接 · sing-box ${n?.info?.singbox ?? ''}`} />
-            <Check state={applied ? 'done' : n?.apply_error && online ? 'fail' : online ? 'wait' : 'idle'} wait="正在下发配置…" done="完成，节点已就绪" fail={`配置下发失败：${n?.apply_error}`} />
-            {applied && <p className="mt-3 animate-content-in text-[13px] text-subtle">节点还没有入站。为它创建一个入站后，分组里的用户就能通过它连接。</p>}
+            <Check state={enrolled ? 'done' : expired ? 'fail' : 'wait'} wait={T().wEnroll} done={T().dEnroll} fail={T().fEnroll}
+              action={expired ? <Button size="sm" variant="primary" isPending={regen.isPending} onPress={() => { regen.mutate(); setStep(2) }}>{T().regen}</Button> : undefined} />
+            <Check state={online ? 'done' : enrolled ? 'wait' : 'idle'} wait={T().wConnect} done={T().dConnect(n?.info?.singbox ?? '')} />
+            <Check state={applied ? 'done' : n?.apply_error && online ? 'fail' : online ? 'wait' : 'idle'} wait={T().wApply} done={T().dApply} fail={T().fApply(n?.apply_error ?? '')} />
+            {applied && <p className="mt-3 animate-content-in text-[13px] text-subtle">{T().noInbound}</p>}
           </div>
         )}
       </div>
@@ -213,7 +217,7 @@ function Code({ text }: { text: string }) {
   return (
     <div className="flex items-start justify-between gap-3 rounded-[10px] border bg-base px-3 py-2.5">
       <code className="min-w-0 font-mono text-[12.5px] break-all whitespace-pre-wrap">{text}</code>
-      <CopyText text={text} display="复制" className="shrink-0" />
+      <CopyText text={text} display={T().copy} className="shrink-0" />
     </div>
   )
 }
@@ -228,23 +232,23 @@ function EditNode({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen
   const save = useAction({
     fn: () => {
       const l = limit.trim() ? parseSize(limit) : 0
-      if (Number.isNaN(l)) throw new Error('月流量格式不对，例如 500 或 1.5T')
+      if (Number.isNaN(l)) throw new Error(T().badLimit)
       return api(`/nodes/${n.id}`, { method: 'PATCH', body: { name, public_address: pub, template_id: Number(tpl), traffic_limit: l, reset_day: Math.min(28, Math.max(1, Number(day) || 1)) } })
     },
-    apply: Number(tpl) !== n.template_id, success: `已保存 ${name}`, invalidate: [['nodes'], ['templates']], onSuccess: onClose,
+    apply: Number(tpl) !== n.template_id, success: T().savedX(name), invalidate: [['nodes'], ['templates']], onSuccess: onClose,
   })
   return (
-    <ModalDialog isOpen={isOpen} onOpenChange={(v) => !v && onClose()} title={`编辑 ${n.name}`}
-      footer={<><Button onPress={onClose}>取消</Button><Button variant="primary" isPending={save.isPending} onPress={() => save.mutate()}>保存</Button></>}>
+    <ModalDialog isOpen={isOpen} onOpenChange={(v) => !v && onClose()} title={T().editX(n.name)}
+      footer={<><Button onPress={onClose}>{tr(C).cancel}</Button><Button variant="primary" isPending={save.isPending} onPress={() => save.mutate()}>{tr(C).save}</Button></>}>
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-4">
-          <Field label="名称" value={name} onChange={setName} />
-          <Select label="路由模板" value={tpl} onChange={setTpl} options={(templates.data ?? []).map((t) => ({ id: String(t.id), label: t.name }))} />
+          <Field label={T().nameShort} value={name} onChange={setName} />
+          <Select label={T().template} value={tpl} onChange={setTpl} options={(templates.data ?? []).map((t) => ({ id: String(t.id), label: t.name }))} />
         </div>
-        <Field label="公网地址" value={pub} onChange={setPub} placeholder={n.address || '例如 la.example.com'} description="订阅里默认使用的地址；留空使用节点连接 master 时的来源 IP" />
+        <Field label={T().pubAddrShort} value={pub} onChange={setPub} placeholder={n.address || T().pubPh2} description={T().pubHint2} />
         <div className="grid grid-cols-2 gap-4">
-          <Field label="月流量上限（GB）" value={limit} onChange={setLimit} placeholder="不限" description={n.traffic_limit ? `当前 ${bytes(n.traffic_limit)}` : 'VPS 套餐流量，用于进度和告警'} />
-          <Field label="每月重置日" value={day} onChange={setDay} description="1–28" />
+          <Field label={T().limit} value={limit} onChange={setLimit} placeholder={T().unlimited} description={n.traffic_limit ? T().current(bytes(n.traffic_limit)) : T().limitHint} />
+          <Field label={T().resetDay} value={day} onChange={setDay} description="1–28" />
         </div>
       </div>
     </ModalDialog>
@@ -254,9 +258,9 @@ function EditNode({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen
 function SpecView({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen: boolean }) {
   const spec = useQuery({ queryKey: ['spec', n.id], queryFn: () => api<unknown>(`/nodes/${n.id}/spec`) })
   return (
-    <ModalDialog wide isOpen={isOpen} onOpenChange={(v) => !v && onClose()} title={`${n.name} · 下发配置 r${n.revision}`}>
+    <ModalDialog wide isOpen={isOpen} onOpenChange={(v) => !v && onClose()} title={T().specTitle(n.name, n.revision)}>
       <pre className="max-h-[60vh] overflow-auto rounded-[10px] border bg-base p-3 font-mono text-[12px] leading-5">
-        {spec.data ? JSON.stringify(decodeSpec(spec.data), null, 2) : '加载中…'}
+        {spec.data ? JSON.stringify(decodeSpec(spec.data), null, 2) : T().loading}
       </pre>
     </ModalDialog>
   )

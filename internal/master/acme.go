@@ -147,16 +147,16 @@ func (cm *certManager) warn(c certRow, t time.Time) {
 		return
 	}
 	days := int(left.Hours() / 24)
-	detail := fmt.Sprintf("%s（%s）· 剩余 %d 天，%s 到期", c.Name, strings.Join(c.SANs, ", "), days,
+	detail := fmt.Sprintf("%s (%s) · %d days left, expires %s", c.Name, strings.Join(c.SANs, ", "), days,
 		time.Unix(c.NotAfter, 0).In(cm.m.loc).Format(time.DateOnly))
 	if left <= 0 {
-		detail = fmt.Sprintf("%s（%s）· 已于 %s 过期", c.Name, strings.Join(c.SANs, ", "), time.Unix(c.NotAfter, 0).In(cm.m.loc).Format(time.DateOnly))
+		detail = fmt.Sprintf("%s (%s) · expired on %s", c.Name, strings.Join(c.SANs, ", "), time.Unix(c.NotAfter, 0).In(cm.m.loc).Format(time.DateOnly))
 	}
 	switch c.Source {
 	case certNode:
-		detail += " · 请检查节点上的 certbot 续期任务"
+		detail += " · Check the certbot renewal job on the node"
 	case certUpload:
-		detail += " · 上传的证书需要手动替换"
+		detail += " · Uploaded certificates must be replaced manually"
 	}
 	cm.m.db.Exec(`UPDATE certs SET warned_at=? WHERE id=?`, t.Unix(), c.ID)
 	addEvent(cm.m.db, "cert_expiring", 0, c.NodeID, detail)
@@ -208,7 +208,7 @@ func (cm *certManager) renew(ctx context.Context, id string) error {
 		next := cm.now().Add(retryDelay(n))
 		cm.m.db.Exec(`UPDATE certs SET last_error=?, attempts=?, next_attempt=?, updated_at=? WHERE id=?`, err.Error(), n, next.Unix(), now(), id)
 		cm.m.log.Printf("cert %s: issue failed (attempt %d, retry %s): %v", id, n, next.Format(time.DateTime), err)
-		addEvent(cm.m.db, "cert_renew_failed", 0, "", fmt.Sprintf("%s（%s）· 第 %d 次失败，%s 重试：%v",
+		addEvent(cm.m.db, "cert_renew_failed", 0, "", fmt.Sprintf("%s (%s) · attempt %d failed, retrying %s: %v",
 			c.Name, strings.Join(req.Domains, ", "), n, next.In(cm.m.loc).Format("01-02 15:04"), err))
 		return err
 	}
@@ -216,11 +216,11 @@ func (cm *certManager) renew(ctx context.Context, id string) error {
 		return err
 	}
 	cm.m.db.Exec(`UPDATE certs SET renewed_at=? WHERE id=?`, cm.now().Unix(), id)
-	verb := "已续期"
+	format := "%s (%s) renewed, expires %s"
 	if !c.HasMaterial {
-		verb = "已签发"
+		format = "%s (%s) issued, expires %s"
 	}
-	addEvent(cm.m.db, "cert_renewed", 0, "", fmt.Sprintf("%s（%s）%s，%s 到期", c.Name, strings.Join(in.SANs, ", "), verb,
+	addEvent(cm.m.db, "cert_renewed", 0, "", fmt.Sprintf(format, c.Name, strings.Join(in.SANs, ", "),
 		in.NotAfter.In(cm.m.loc).Format(time.DateOnly)))
 	if nodes := cm.m.certNodes(id); len(nodes) > 0 {
 		cm.m.reconcile(nodes...) // only the cert bundle hash changes: files are swapped, inbounds stay up
@@ -323,7 +323,7 @@ func (a *acmeIssuer) Issue(ctx context.Context, req IssueRequest) ([]byte, []byt
 	}
 	acct, err = client.NewAccount(ctx, acct)
 	if err != nil {
-		return nil, nil, fmt.Errorf("ACME 账户：%w", err)
+		return nil, nil, fmt.Errorf("ACME account: %w", err)
 	}
 	ckey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -331,10 +331,10 @@ func (a *acmeIssuer) Issue(ctx context.Context, req IssueRequest) ([]byte, []byt
 	}
 	certs, err := client.ObtainCertificateForSANs(ctx, acct, ckey, req.Domains)
 	if err != nil {
-		return nil, nil, fmt.Errorf("ACME 签发：%w", err)
+		return nil, nil, fmt.Errorf("ACME issuance: %w", err)
 	}
 	if len(certs) == 0 {
-		return nil, nil, errors.New("ACME 没有返回证书")
+		return nil, nil, errors.New("ACME returned no certificate")
 	}
 	der, _ := x509.MarshalPKCS8PrivateKey(ckey)
 	return certs[0].ChainPEM, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), nil

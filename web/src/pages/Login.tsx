@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Form } from 'react-aria-components'
 import { api, ApiError } from '../lib/api'
-import { Button, Field } from '../ui/kit'
+import { Button, Field, LangSwitch } from '../ui/kit'
+import { useT } from '../i18n'
+import { SH } from '../i18n/shell'
 
 export function Login({ onDone }: { onDone: () => void }) {
   const [username, setUsername] = useState('admin')
@@ -10,6 +12,7 @@ export function Login({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [needCode, setNeedCode] = useState(false)
   const [code, setCode] = useState('')
+  const t = useT(SH)
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setBusy(true)
@@ -27,7 +30,8 @@ export function Login({ onDone }: { onDone: () => void }) {
     }
   }
   return (
-    <div className="grid min-h-full place-items-center p-4">
+    <div className="relative grid min-h-full place-items-center p-4">
+      <div className="absolute top-3 right-3"><LangSwitch /></div>
       <Form onSubmit={submit} className="w-full max-w-[380px] rounded-[20px] border bg-surface p-8 animate-pop">
         <div className="mb-6 flex items-center gap-3">
           <span className="grid h-10 w-10 place-items-center rounded-[12px] bg-accent text-on-accent">
@@ -35,15 +39,15 @@ export function Login({ onDone }: { onDone: () => void }) {
           </span>
           <div>
             <div className="text-lg font-semibold">sbpanel</div>
-            <div className="text-[13px] text-subtle">sing-box 代理管理面板</div>
+            <div className="text-[13px] text-subtle">{t.tagline}</div>
           </div>
         </div>
         <div className="flex flex-col gap-4">
-          <Field label="用户名" value={username} onChange={setUsername} autoComplete="username" isRequired />
-          <Field label="密码" type="password" value={password} onChange={setPassword} autoComplete="current-password" autoFocus isRequired />
-          {needCode && <Field label="两步验证码" value={code} onChange={setCode} autoComplete="one-time-code" autoFocus description="验证器 App 中的 6 位数字" />}
+          <Field label={t.username} value={username} onChange={setUsername} autoComplete="username" isRequired />
+          <Field label={t.password} type="password" value={password} onChange={setPassword} autoComplete="current-password" autoFocus isRequired />
+          {needCode && <Field label={t.totp} value={code} onChange={setCode} autoComplete="one-time-code" autoFocus description={t.totpHint} />}
           {err && <div className="rounded-[10px] bg-bad/10 px-3 py-2 text-[13px] text-bad">{err}</div>}
-          <Button type="submit" variant="primary" isPending={busy} className="mt-1 h-10">{busy ? '登录中…' : '登录'}</Button>
+          <Button type="submit" variant="primary" isPending={busy} className="mt-1 h-10">{busy ? t.signingIn : t.signIn}</Button>
         </div>
       </Form>
     </div>

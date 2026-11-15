@@ -8,6 +8,9 @@ import { Badge, Button, Callout, Card, Checkbox, Confirm, CopyText, Field, IconB
 import { AppearanceSettings } from './settings/Appearance'
 import { ApiAgents } from './settings/ApiAgents'
 import { ApiDocs } from './settings/ApiDocs'
+import { tr, useT } from '../i18n'
+import { C } from '../i18n/common'
+import { S } from '../i18n/settings'
 
 // ---- one scrolling page, section nav (vertical by default, horizontal below 1024px or by choice) ----
 
@@ -26,17 +29,22 @@ const IconNavSide: IconC = (p) => <Svg {...p}><rect x="3" y="4" width="18" heigh
 const IconNavTop: IconC = (p) => <Svg {...p}><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 9h18" /></Svg>
 
 type SectionId = 'account' | 'api' | 'appearance' | 'notify' | 'policy' | 'backup' | 'import'
+const sec = (id: SectionId, icon: IconC, el: () => ReactNode) => ({
+  id, icon, el,
+  get label() { return tr(S)[`sec_${id}`] },
+  get desc() { return tr(S)[`sec_${id}_d`] },
+})
 const SECTIONS: { id: SectionId; label: string; desc: string; icon: IconC; el: () => ReactNode }[] = [
-  { id: 'account', label: '账户与安全', desc: '登录密码和两步验证', icon: IconShield, el: () => <Account /> },
-  { id: 'api', label: 'API 与智能体', desc: '带权限的 API 密钥、MCP 智能体接入与接口文档', icon: IconAgent, el: () => <ApiAgents /> },
-  { id: 'appearance', label: '外观', desc: '面板配色、强调色、圆角与密度', icon: IconPalette, el: () => <AppearanceSettings /> },
-  { id: 'notify', label: '通知', desc: 'Telegram / Webhook 渠道与事件', icon: IconBellS, el: () => <Notify /> },
-  { id: 'policy', label: '策略', desc: '设备数策略、数据保留与节点接入', icon: IconSliders, el: () => <Policy /> },
-  { id: 'backup', label: '备份与恢复', desc: '下载数据库与恢复步骤', icon: IconArchive, el: () => <Backup /> },
-  { id: 'import', label: '从 3x-ui 迁移', desc: '导入 3x-ui 的入站和用户', icon: IconImport, el: () => <Import /> },
+  sec('account', IconShield, () => <Account />),
+  sec('api', IconAgent, () => <ApiAgents />),
+  sec('appearance', IconPalette, () => <AppearanceSettings />),
+  sec('notify', IconBellS, () => <Notify />),
+  sec('policy', IconSliders, () => <Policy />),
+  sec('backup', IconArchive, () => <Backup />),
+  sec('import', IconImport, () => <Import />),
 ]
 const isSection = (v: string | null): v is SectionId => SECTIONS.some((x) => x.id === v)
-// Old ?tab= links (and the removed 订阅页 tab) map onto sections.
+// Old ?tab= links (and the removed subpage tab) map onto sections.
 const LEGACY_TAB: Record<string, SectionId> = { account: 'account', api: 'api', tokens: 'api', appearance: 'appearance', subpage: 'appearance', notify: 'notify', policy: 'policy', backup: 'backup', import: 'import' }
 
 const NAV_KEY = 'sbp-settings-nav'
@@ -61,11 +69,12 @@ function sectionFromURL(params: URLSearchParams): SectionId | null {
 
 export function SettingsPage() {
   const { params } = useRoute()
-  // 设置 → API 与智能体 → API 文档 is a sub-view of this page (#/settings?view=api-docs)
+  // Settings → API & agents → API docs is a sub-view of this page (#/settings?view=api-docs)
   return params.get('view') === 'api-docs' ? <ApiDocs /> : <SettingsSections />
 }
 
 function SettingsSections() {
+  const t = useT(S)
   const { params } = useRoute()
   const wide = useMedia('(min-width: 1024px)')
   const [pref, setPref] = useState<NavPref>(readNavPref)
@@ -173,10 +182,10 @@ function SettingsSections() {
   const marginTop = layout === 'horizontal' ? HEADER + 52 + 16 : HEADER + 16
   return (
     <>
-      <PageHeader title="设置" subtitle="账户安全、API 与智能体、面板外观、通知、策略、备份与迁移" actions={
+      <PageHeader title={t.title} subtitle={t.subtitle} actions={
         <span className="hidden lg:inline-flex">
-          <IconButton label="导航：竖版 / 横版" onPress={togglePref}>
-            <span title="导航：竖版 / 横版" className="inline-flex">{pref === 'vertical' ? <IconNavTop size={18} /> : <IconNavSide size={18} />}</span>
+          <IconButton label={t.navToggle} onPress={togglePref}>
+            <span title={t.navToggle} className="inline-flex">{pref === 'vertical' ? <IconNavTop size={18} /> : <IconNavSide size={18} />}</span>
           </IconButton>
         </span>
       } />
@@ -217,7 +226,7 @@ function SectionNav({ orientation, active, onSelect }: { orientation: NavPref; a
     if (nav && a) nav.scrollTo({ left: a.offsetLeft - nav.clientWidth / 2 + a.offsetWidth / 2, behavior: reducedMotion() ? 'auto' : 'smooth' })
   }, [active, vertical, ref])
   return (
-    <nav ref={ref} aria-label="设置分区"
+    <nav ref={ref} aria-label={tr(S).navLabel}
       className={cx('relative', vertical ? 'flex flex-col gap-0.5' : 'no-scrollbar flex gap-1 overflow-x-auto')}>
       {ind && (vertical
         ? <span aria-hidden className={cx('pointer-events-none absolute top-0 left-0 z-10 w-[3px] rounded-full bg-accent', ind.ready && 'rp-slide')} style={{ transform: `translateY(${ind.y + 8}px)`, height: ind.h - 16 }} />
@@ -240,6 +249,8 @@ function SectionNav({ orientation, active, onSelect }: { orientation: NavPref; a
 }
 
 function Account() {
+  const t = useT(S)
+  const c = useT(C)
   const qc = useQueryClient()
   const toast = useToast()
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<{ username: string; totp: boolean }>('/auth/me') })
@@ -248,10 +259,10 @@ function Account() {
   const [newPw2, setNew2] = useState('')
   const pw = useMutation({
     mutationFn: () => {
-      if (newPw !== newPw2) throw new Error('两次输入的新密码不一致')
+      if (newPw !== newPw2) throw new Error(t.pwMismatch)
       return api('/me/password', { method: 'POST', body: { old: oldPw, new: newPw } })
     },
-    onSuccess: () => { toast('good', '密码已修改'); setOld(''); setNew(''); setNew2('') },
+    onSuccess: () => { toast('good', t.pwChanged); setOld(''); setNew(''); setNew2('') },
     onError: (e) => toast('bad', (e as Error).message),
   })
   const [setup, setSetup] = useState<{ secret: string; uri: string; qr: string } | null>(null)
@@ -261,71 +272,69 @@ function Account() {
   const startTotp = useAction({ fn: () => api<{ secret: string; uri: string; qr: string }>('/me/totp/setup', { method: 'POST' }), onSuccess: setSetup })
   const enableTotp = useMutation({
     mutationFn: () => api('/me/totp/enable', { method: 'POST', body: { code } }),
-    onSuccess: () => { toast('good', '两步验证已开启'); setSetup(null); setCode(''); qc.invalidateQueries({ queryKey: ['me'] }) },
+    onSuccess: () => { toast('good', t.totpOn); setSetup(null); setCode(''); qc.invalidateQueries({ queryKey: ['me'] }) },
     onError: (e) => toast('bad', (e as Error).message),
   })
   const disableTotp = useMutation({
     mutationFn: () => api('/me/totp/disable', { method: 'POST', body: { password: disablePw } }),
-    onSuccess: () => { toast('good', '两步验证已关闭'); setDisabling(false); setDisablePw(''); qc.invalidateQueries({ queryKey: ['me'] }) },
+    onSuccess: () => { toast('good', t.totpOffDone); setDisabling(false); setDisablePw(''); qc.invalidateQueries({ queryKey: ['me'] }) },
     onError: (e) => toast('bad', (e as Error).message),
   })
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Card title="修改密码">
+      <Card title={t.changePw}>
         <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); pw.mutate() }}>
           <input type="text" name="username" autoComplete="username" value={me.data?.username ?? ''} readOnly hidden />
-          <Field label="原密码" type="password" value={oldPw} onChange={setOld} autoComplete="current-password" />
+          <Field label={t.oldPw} type="password" value={oldPw} onChange={setOld} autoComplete="current-password" />
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="新密码" type="password" value={newPw} onChange={setNew} autoComplete="new-password" description="至少 8 位" />
-            <Field label="确认新密码" type="password" value={newPw2} onChange={setNew2} autoComplete="new-password" />
+            <Field label={t.newPw} type="password" value={newPw} onChange={setNew} autoComplete="new-password" description={t.min8} />
+            <Field label={t.newPw2} type="password" value={newPw2} onChange={setNew2} autoComplete="new-password" />
           </div>
-          <div><Button type="submit" variant="primary" isPending={pw.isPending} isDisabled={!oldPw || newPw.length < 8}>修改密码</Button></div>
+          <div><Button type="submit" variant="primary" isPending={pw.isPending} isDisabled={!oldPw || newPw.length < 8}>{t.changePw}</Button></div>
         </form>
       </Card>
-      <Card title="两步验证（TOTP）" action={me.data?.totp ? <Badge tone="good" dot>已开启</Badge> : <Badge>未开启</Badge>}>
+      <Card title={t.totpTitle} action={me.data?.totp ? <Badge tone="good" dot>{t.badgeOn}</Badge> : <Badge>{t.badgeOff}</Badge>}>
         {me.data?.totp ? (
           <div className="flex flex-col gap-3">
-            <p className="text-[13px] text-subtle">登录时除密码外还需要验证器 App 里的 6 位动态码。忘记时可以在服务器上运行 <span className="font-mono">sbmaster reset-admin</span>。</p>
-            <div><Button variant="danger" onPress={() => setDisabling(true)}>关闭两步验证</Button></div>
+            <p className="text-[13px] text-subtle">{t.totpOnHint('sbmaster reset-admin')}</p>
+            <div><Button variant="danger" onPress={() => setDisabling(true)}>{t.disableTotp}</Button></div>
           </div>
         ) : setup ? (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-5">
-            <img src={setup.qr} alt="两步验证二维码" className="h-40 w-40 shrink-0 rounded-[10px] bg-white p-1.5 [image-rendering:pixelated]" />
+            <img src={setup.qr} alt={t.totpQr} className="h-40 w-40 shrink-0 rounded-[10px] bg-white p-1.5 [image-rendering:pixelated]" />
             <div className="flex min-w-0 flex-col gap-3">
-              <p className="text-[13px] text-subtle">用 Google Authenticator、1Password 等扫码，或手动输入密钥：</p>
+              <p className="text-[13px] text-subtle">{t.scanHint}</p>
               <CopyText text={setup.secret} />
-              <Field label="6 位验证码" value={code} onChange={setCode} autoFocus />
-              <div className="flex gap-2"><Button variant="primary" isPending={enableTotp.isPending} isDisabled={code.length !== 6} onPress={() => enableTotp.mutate()}>验证并开启</Button><Button onPress={() => setSetup(null)}>取消</Button></div>
+              <Field label={t.code6} value={code} onChange={setCode} autoFocus />
+              <div className="flex gap-2"><Button variant="primary" isPending={enableTotp.isPending} isDisabled={code.length !== 6} onPress={() => enableTotp.mutate()}>{t.verifyEnable}</Button><Button onPress={() => setSetup(null)}>{c.cancel}</Button></div>
             </div>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            <p className="text-[13px] text-subtle">开启后，即使密码泄露也无法登录面板。</p>
-            <div><Button variant="primary" isPending={startTotp.isPending} onPress={() => startTotp.mutate()}>开启两步验证</Button></div>
+            <p className="text-[13px] text-subtle">{t.totpOffHint}</p>
+            <div><Button variant="primary" isPending={startTotp.isPending} onPress={() => startTotp.mutate()}>{t.enableTotp}</Button></div>
           </div>
         )}
       </Card>
-      <ModalDialog isOpen={disabling} onOpenChange={setDisabling} title="关闭两步验证"
-        footer={<><Button onPress={() => setDisabling(false)}>取消</Button><Button variant="danger-solid" isPending={disableTotp.isPending} isDisabled={!disablePw} onPress={() => disableTotp.mutate()}>关闭两步验证</Button></>}>
-        <Field label="输入密码确认" type="password" value={disablePw} onChange={setDisablePw} autoFocus />
+      <ModalDialog isOpen={disabling} onOpenChange={setDisabling} title={t.disableTotp}
+        footer={<><Button onPress={() => setDisabling(false)}>{c.cancel}</Button><Button variant="danger-solid" isPending={disableTotp.isPending} isDisabled={!disablePw} onPress={() => disableTotp.mutate()}>{t.disableTotp}</Button></>}>
+        <Field label={t.confirmPw} type="password" value={disablePw} onChange={setDisablePw} autoFocus />
       </ModalDialog>
     </div>
   )
 }
 
-const notifyKinds = [
-  { id: 'node_offline', label: '节点离线（超过 60 秒）' }, { id: 'node_online', label: '节点上线' }, { id: 'apply_failed', label: '配置下发失败' },
-  { id: 'node_quota', label: '节点月流量 80% / 100%' }, { id: 'quota_exceeded', label: '用户流量用尽' }, { id: 'user_expired', label: '用户到期' },
-  { id: 'device_limit', label: '设备数超限' }, { id: 'node_enrolled', label: '新节点接入' }, { id: 'usage_reset', label: '用量周期重置' },
-  { id: 'cert_expiring', label: '证书即将过期（≤14 天）' }, { id: 'cert_renew_failed', label: '证书续期失败' }, { id: 'cert_renewed', label: '证书已续期' },
-  { id: 'inbound_unreachable', label: '入站不可达（连通性检查）' }, { id: 'inbound_recovered', label: '入站恢复' },
-]
+const NOTIFY_IDS = ['node_offline', 'node_online', 'apply_failed', 'node_quota', 'quota_exceeded', 'user_expired', 'device_limit', 'node_enrolled',
+  'usage_reset', 'cert_expiring', 'cert_renew_failed', 'cert_renewed', 'inbound_unreachable', 'inbound_recovered'] as const
+const notifyKinds = () => NOTIFY_IDS.map((id) => ({ id, label: tr(S)[`k_${id}`] }))
 
 function useSettings() {
   return useQuery({ queryKey: ['settings'], queryFn: () => api<Settings>('/settings') })
 }
 
 function Notify() {
+  const t = useT(S)
+  const c = useT(C)
   const qc = useQueryClient()
   const toast = useToast()
   const s = useSettings()
@@ -342,24 +351,24 @@ function Notify() {
       if (tgToken) body.tg_token = tgToken
       return api('/settings', { method: 'PUT', body })
     },
-    onSuccess: () => { toast('good', '已保存'); setTgToken(''); qc.invalidateQueries({ queryKey: ['settings'] }) },
+    onSuccess: () => { toast('good', c.saved); setTgToken(''); qc.invalidateQueries({ queryKey: ['settings'] }) },
     onError: (e) => toast('bad', (e as Error).message),
   })
-  const test = useMutation({ mutationFn: () => api('/notify/test', { method: 'POST' }), onSuccess: () => toast('good', '测试消息已发送'), onError: (e) => toast('bad', (e as Error).message) })
+  const test = useMutation({ mutationFn: () => api('/notify/test', { method: 'POST' }), onSuccess: () => toast('good', t.testSent), onError: (e) => toast('bad', (e as Error).message) })
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Card title="渠道" action={<Button size="sm" variant="primary" isPending={save.isPending} onPress={() => save.mutate()}>保存</Button>}>
+      <Card title={t.channels} action={<Button size="sm" variant="primary" isPending={save.isPending} onPress={() => save.mutate()}>{c.save}</Button>}>
         <div className="flex flex-col gap-4">
           <Field label="Telegram Bot Token" type="password" value={tgToken} onChange={setTgToken} autoComplete="off"
-            placeholder={s.data?.tg_token_set ? '已设置（留空保持不变）' : '从 @BotFather 获取'} />
-          <Field label="Telegram Chat ID" value={chat} onChange={setChat} placeholder="例如 123456789" />
-          <Field label="Webhook URL" value={hook} onChange={setHook} placeholder="https://…" description={'POST JSON：{"text": "...", "ts": 1700000000}'} />
-          <div className="flex gap-2"><Button onPress={() => test.mutate()} isPending={test.isPending}>发送测试消息</Button></div>
+            placeholder={s.data?.tg_token_set ? t.tokenSet : t.fromBotFather} />
+          <Field label="Telegram Chat ID" value={chat} onChange={setChat} placeholder={t.egChat} />
+          <Field label="Webhook URL" value={hook} onChange={setHook} placeholder="https://…" description={'POST JSON: {"text": "...", "ts": 1700000000}'} />
+          <div className="flex gap-2"><Button onPress={() => test.mutate()} isPending={test.isPending}>{t.sendTest}</Button></div>
         </div>
       </Card>
-      <Card title="通知哪些事件" action={<Button size="sm" variant="primary" isPending={save.isPending} onPress={() => save.mutate()}>保存</Button>}>
+      <Card title={t.whichEvents} action={<Button size="sm" variant="primary" isPending={save.isPending} onPress={() => save.mutate()}>{c.save}</Button>}>
         <div className="grid gap-2.5 sm:grid-cols-2">
-          {notifyKinds.map((k) => (
+          {notifyKinds().map((k) => (
             <Checkbox key={k.id} isSelected={kinds.includes(k.id)} onChange={(v) => setKinds(v ? [...kinds, k.id] : kinds.filter((x) => x !== k.id))}>{k.label}</Checkbox>
           ))}
         </div>
@@ -369,6 +378,8 @@ function Notify() {
 }
 
 function Policy() {
+  const t = useT(S)
+  const c = useT(C)
   const qc = useQueryClient()
   const toast = useToast()
   const s = useSettings()
@@ -376,29 +387,29 @@ function Policy() {
   useEffect(() => { if (s.data) setDp(s.data.device_policy) }, [s.data])
   const save = useMutation({
     mutationFn: () => api('/settings', { method: 'PUT', body: { device_policy: dp } }),
-    onSuccess: () => { toast('good', '已保存'); qc.invalidateQueries({ queryKey: ['settings'] }) },
+    onSuccess: () => { toast('good', c.saved); qc.invalidateQueries({ queryKey: ['settings'] }) },
     onError: (e) => toast('bad', (e as Error).message),
   })
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Card title="设备数超限时" action={<Button size="sm" variant="primary" isPending={save.isPending} onPress={() => save.mutate()}>保存</Button>}>
-        <Select label="策略" value={dp} onChange={setDp} options={[{ id: 'reject', label: '拒绝新设备（先连上的保留）' }, { id: 'kick_oldest', label: '踢掉最早的设备（新设备优先）' }]} />
-        <p className="mt-3 text-xs text-muted">按用户在所有节点上同时在线的来源 IP 计数。节点本地会立即拒绝超额的新 IP，master 每 10 秒做一次跨节点校正。</p>
+      <Card title={t.overLimit} action={<Button size="sm" variant="primary" isPending={save.isPending} onPress={() => save.mutate()}>{c.save}</Button>}>
+        <Select label={t.policy} value={dp} onChange={setDp} options={[{ id: 'reject', label: t.dpReject }, { id: 'kick_oldest', label: t.dpKick }]} />
+        <p className="mt-3 text-xs text-muted">{t.dpHint}</p>
       </Card>
-      <Card title="数据保留">
-        <dl className="grid grid-cols-[140px_1fr] gap-y-2 text-[13px]">
-          <dt className="text-subtle">分钟级流量</dt><dd>{s.data?.keep_minute_days} 天</dd>
-          <dt className="text-subtle">小时级流量</dt><dd>{s.data?.keep_hour_days} 天</dd>
-          <dt className="text-subtle">域名 / 来源 IP 明细</dt><dd>{s.data?.keep_dim_days} 天</dd>
-          <dt className="text-subtle">时区</dt><dd>{s.data?.tz}</dd>
+      <Card title={t.retention}>
+        <dl className="grid grid-cols-[minmax(140px,auto)_1fr] gap-x-4 gap-y-2 text-[13px]">
+          <dt className="text-subtle">{t.minuteTraffic}</dt><dd>{t.days(s.data?.keep_minute_days ?? 0)}</dd>
+          <dt className="text-subtle">{t.hourTraffic}</dt><dd>{t.days(s.data?.keep_hour_days ?? 0)}</dd>
+          <dt className="text-subtle">{t.dimDetail}</dt><dd>{t.days(s.data?.keep_dim_days ?? 0)}</dd>
+          <dt className="text-subtle">{t.tz}</dt><dd>{s.data?.tz}</dd>
         </dl>
-        <p className="mt-3 text-xs text-muted">在启动参数里调整（--tz 等）。</p>
+        <p className="mt-3 text-xs text-muted">{t.retentionHint}</p>
       </Card>
-      <Card className="xl:col-span-2" title="节点接入">
-        <dl className="grid grid-cols-[140px_1fr] gap-y-2 text-[13px]">
-          <dt className="text-subtle">gRPC 监听</dt><dd className="font-mono">{s.data?.grpc_listen}</dd>
-          <dt className="text-subtle">节点连接地址</dt><dd className="font-mono">{s.data?.public_grpc || '（按访问面板的域名推断，建议用 --public-grpc 指定）'}</dd>
-          <dt className="text-subtle">CA 指纹</dt><dd className="min-w-0"><CopyText text={s.data?.ca_sha256 ?? ''} /></dd>
+      <Card className="xl:col-span-2" title={t.enroll}>
+        <dl className="grid grid-cols-[minmax(140px,auto)_1fr] gap-x-4 gap-y-2 text-[13px]">
+          <dt className="text-subtle">{t.grpcListen}</dt><dd className="font-mono">{s.data?.grpc_listen}</dd>
+          <dt className="text-subtle">{t.nodeAddr}</dt><dd className="font-mono">{s.data?.public_grpc || t.nodeAddrGuess}</dd>
+          <dt className="text-subtle">{t.caFp}</dt><dd className="min-w-0"><CopyText text={s.data?.ca_sha256 ?? ''} /></dd>
         </dl>
       </Card>
     </div>
@@ -406,25 +417,27 @@ function Policy() {
 }
 
 function Backup() {
+  const t = useT(S)
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <Card title="下载备份">
-        <p className="mb-4 text-[13px] text-subtle">导出完整的 SQLite 数据库（用户、节点、入站、模板、流量统计、CA 私钥）。请妥善保管：它可以签发节点证书。</p>
-        <a href="/api/backup" download className="inline-flex h-8 items-center rounded-full bg-accent px-4 text-sm font-medium text-on-accent hover:brightness-110">下载 sbmaster.db</a>
+      <Card title={t.dlBackup}>
+        <p className="mb-4 text-[13px] text-subtle">{t.backupHint}</p>
+        <a href="/api/backup" download className="inline-flex h-8 items-center rounded-full bg-accent px-4 text-sm font-medium text-on-accent hover:brightness-110">{t.dlDb}</a>
       </Card>
-      <Card title="恢复">
+      <Card title={t.restore}>
         <ol className="list-decimal space-y-1.5 pl-5 text-[13px] text-subtle">
-          <li>停止 sbmaster</li>
-          <li>把备份文件放到数据目录，命名为 <span className="font-mono text-text">sbmaster.db</span>（删除同目录的 -wal / -shm 文件）</li>
-          <li>启动 sbmaster。节点证书由同一个 CA 签发，节点会自动重连</li>
+          <li>{t.r1}</li>
+          <li>{t.r2()}</li>
+          <li>{t.r3}</li>
         </ol>
-        <p className="mt-3 text-xs text-muted">忘记密码：<span className="font-mono">sbmaster reset-admin --password 新密码</span></p>
+        <p className="mt-3 text-xs text-muted">{t.forgotPw}<span className="font-mono">{t.resetCmd}</span></p>
       </Card>
     </div>
   )
 }
 
 function Import() {
+  const t = useT(S)
   const qc = useQueryClient()
   const toast = useToast()
   const nodes = useQuery({ queryKey: ['nodes'], queryFn: () => api<Node[]>('/nodes') })
@@ -442,7 +455,7 @@ function Import() {
     onMutate: () => setErr(''),
     onSuccess: (r) => {
       setRep(r)
-      if (!r.dry_run) { toast('good', `已导入 ${r.users} 个用户、${r.inbounds?.length ?? 0} 个入站`); qc.invalidateQueries() }
+      if (!r.dry_run) { toast('good', t.imported(r.users, r.inbounds?.length ?? 0)); qc.invalidateQueries() }
     },
     onError: (e) => { setRep(null); setErr((e as Error).message) },
   })
@@ -450,49 +463,48 @@ function Import() {
   return (
     <div className="flex flex-col gap-4">
       <Callout>
-        导出方式：在 3x-ui 所在机器执行 <span className="font-mono">curl -s -b cookie https://面板地址/panel/api/inbounds/list</span>（或用 API 令牌），把返回的 JSON 粘贴到下面；
-        也可以在服务器上直接 <span className="font-mono">sbmaster import-3xui --node ID --db /etc/x-ui/x-ui.db</span>。用户按邮箱匹配，UUID、密码、subId 保持不变，3x-ui 的订阅链接 <span className="font-mono">/sub/&lt;subId&gt;</span> 继续可用。
+        {t.importHelp()}
       </Callout>
-      <Card title="1 · 选择目标节点并提供数据">
+      <Card title={t.step1}>
         <div className="flex flex-col gap-4">
-          <Select className="sm:w-64" label="导入到节点" value={node} onChange={(v) => { setNode(v); reset() }} options={(nodes.data ?? []).map((n) => ({ id: n.id, label: n.name }))} />
-          <Field label="3x-ui 入站列表 JSON" multiline rows={8} mono value={data} onChange={(v) => { setData(v); setFile(''); reset() }} placeholder='{"success":true,"obj":[{"id":1,"protocol":"vless",...}]}' />
+          <Select className="sm:w-64" label={t.importTo} value={node} onChange={(v) => { setNode(v); reset() }} options={(nodes.data ?? []).map((n) => ({ id: n.id, label: n.name }))} />
+          <Field label={t.jsonLabel} multiline rows={8} mono value={data} onChange={(v) => { setData(v); setFile(''); reset() }} placeholder='{"success":true,"obj":[{"id":1,"protocol":"vless",...}]}' />
           <div className="flex flex-wrap items-center gap-2 text-[13px] text-subtle">
             <FileTrigger acceptedFileTypes={['.json', 'application/json']} onSelect={(fl) => onFile(fl?.[0])}>
-              <Button size="sm">选择 JSON 文件…</Button>
+              <Button size="sm">{t.pickFile}</Button>
             </FileTrigger>
-            <span className="min-w-0 truncate">{file ? <>已读取 <span className="font-mono text-text">{file}</span></> : '或从文件读取'}</span>
+            <span className="min-w-0 truncate">{file ? <>{t.readFile}<span className="font-mono text-text">{file}</span></> : t.orFile}</span>
           </div>
-          {err && <Callout tone="bad"><b>{run.variables === false ? "导入失败" : "预览失败"}：</b>{err}</Callout>}
+          {err && <Callout tone="bad"><b>{run.variables === false ? t.importFailed : t.previewFailed}:</b> {err}</Callout>}
           <div className="flex flex-wrap gap-2">
-            <Button isPending={run.isPending && run.variables === true} isDisabled={!node || !data.trim() || run.isPending} onPress={() => run.mutate(true)}>预览（不写入）</Button>
-            <Button variant="primary" isPending={run.isPending && run.variables === false} isDisabled={!rep?.dry_run || run.isPending} onPress={() => setConfirm(true)}>导入</Button>
-            {!rep?.dry_run && data.trim() && !err && <span className="self-center text-xs text-muted">先预览，确认结果后才能导入</span>}
+            <Button isPending={run.isPending && run.variables === true} isDisabled={!node || !data.trim() || run.isPending} onPress={() => run.mutate(true)}>{t.preview}</Button>
+            <Button variant="primary" isPending={run.isPending && run.variables === false} isDisabled={!rep?.dry_run || run.isPending} onPress={() => setConfirm(true)}>{t.doImport}</Button>
+            {!rep?.dry_run && data.trim() && !err && <span className="self-center text-xs text-muted">{t.previewFirst}</span>}
           </div>
         </div>
       </Card>
       {rep && (
-        <Card title={rep.dry_run ? '2 · 预览结果' : '导入完成'} className="animate-content-in">
+        <Card title={rep.dry_run ? t.step2 : t.importDone} className="animate-content-in">
           <div className="flex flex-wrap gap-3 text-[13px]">
-            <Badge tone="accent">{rep.users} 个用户{rep.updated ? `（${rep.updated} 个已存在，已更新）` : ''}</Badge>
-            <Badge tone="accent">{rep.inbounds?.length ?? 0} 个入站</Badge>
-            {(rep.skipped?.length ?? 0) > 0 && <Badge tone="warn">跳过 {rep.skipped!.length} 个</Badge>}
+            <Badge tone="accent">{t.nUsers(rep.users, rep.updated)}</Badge>
+            <Badge tone="accent">{t.nInbounds(rep.inbounds?.length ?? 0)}</Badge>
+            {(rep.skipped?.length ?? 0) > 0 && <Badge tone="warn">{t.nSkipped(rep.skipped!.length)}</Badge>}
           </div>
           {rep.inbounds && rep.inbounds.length > 0 && (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-[13px] whitespace-nowrap">
-                <thead className="text-left text-xs text-subtle"><tr className="border-b"><th className="py-2 pr-3 font-medium">入站</th><th className="py-2 pr-3 font-medium">协议</th><th className="py-2 pr-3 font-medium">端口</th><th className="py-2 font-medium">用户</th></tr></thead>
+                <thead className="text-left text-xs text-subtle"><tr className="border-b"><th className="py-2 pr-3 font-medium">{t.thInbound}</th><th className="py-2 pr-3 font-medium">{t.thProto}</th><th className="py-2 pr-3 font-medium">{t.thPort}</th><th className="py-2 font-medium">{t.thUsers}</th></tr></thead>
                 <tbody>{rep.inbounds.map((i) => <tr key={i.tag} className="border-b last:border-0"><td className="py-1.5 pr-3">{i.remark || i.tag}<span className="ml-2 font-mono text-xs text-muted">{i.tag}</span></td><td className="py-1.5 pr-3">{i.type}</td><td className="py-1.5 pr-3 tabular">{i.port}</td><td className="py-1.5 tabular">{i.users}</td></tr>)}</tbody>
               </table>
             </div>
           )}
-          {(rep.groups?.length ?? 0) > 0 && <><h3 className="mt-4 mb-1 text-[13px] font-medium">将创建的分组</h3><ul className="list-disc pl-5 text-[13px] text-subtle">{rep.groups!.map((g) => <li key={g}>{g}</li>)}</ul></>}
-          {(rep.skipped?.length ?? 0) > 0 && <><h3 className="mt-4 mb-1 text-[13px] font-medium text-warn">跳过</h3><ul className="list-disc pl-5 text-[13px] text-subtle">{rep.skipped!.map((g) => <li key={g}>{g}</li>)}</ul></>}
-          {(rep.warnings?.length ?? 0) > 0 && <><h3 className="mt-4 mb-1 text-[13px] font-medium text-warn">注意</h3><ul className="list-disc pl-5 text-[13px] text-subtle">{[...new Set(rep.warnings!)].map((g) => <li key={g}>{g}</li>)}</ul></>}
+          {(rep.groups?.length ?? 0) > 0 && <><h3 className="mt-4 mb-1 text-[13px] font-medium">{t.groupsToCreate}</h3><ul className="list-disc pl-5 text-[13px] text-subtle">{rep.groups!.map((g) => <li key={g}>{g}</li>)}</ul></>}
+          {(rep.skipped?.length ?? 0) > 0 && <><h3 className="mt-4 mb-1 text-[13px] font-medium text-warn">{t.skipped}</h3><ul className="list-disc pl-5 text-[13px] text-subtle">{rep.skipped!.map((g) => <li key={g}>{g}</li>)}</ul></>}
+          {(rep.warnings?.length ?? 0) > 0 && <><h3 className="mt-4 mb-1 text-[13px] font-medium text-warn">{t.warnings}</h3><ul className="list-disc pl-5 text-[13px] text-subtle">{[...new Set(rep.warnings!)].map((g) => <li key={g}>{g}</li>)}</ul></>}
         </Card>
       )}
-      <Confirm isOpen={confirm} onOpenChange={setConfirm} title="确认导入" confirmLabel="导入" onConfirm={() => run.mutate(false)}
-        body={`将在节点上创建 ${rep?.inbounds?.length ?? 0} 个入站、导入 ${rep?.users ?? 0} 个用户。端口与节点上已有入站冲突时会整体回滚。`} />
+      <Confirm isOpen={confirm} onOpenChange={setConfirm} title={t.confirmImport} confirmLabel={t.doImport} onConfirm={() => run.mutate(false)}
+        body={t.confirmBody(rep?.inbounds?.length ?? 0, rep?.users ?? 0)} />
     </div>
   )
 }

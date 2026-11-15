@@ -7,6 +7,8 @@ import {
   ListBoxItem, FieldError, Text, Checkbox as RCheckbox, MenuTrigger, Menu, MenuItem, Separator, type PopoverProps,
 } from 'react-aria-components'
 import { IconX, IconCheck, IconAlert, IconCopy, IconMore } from './icons'
+import { LANGS, locale, setLang, tr, useLang, type Lang } from '../i18n'
+import { C } from '../i18n/common'
 
 export function cx(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(' ')
@@ -223,7 +225,7 @@ export function Select<T extends string>({ label, value, onChange, options, clas
     <RSelect selectedKey={value} onSelectionChange={(k) => k !== null && onChange(k as T)} aria-label={hideLabel ? label : undefined} className={cx('flex flex-col gap-1.5', className)}>
       {!hideLabel && <Label className="text-[13px] font-medium [overflow-wrap:anywhere] text-subtle">{label}</Label>}
       <RButton className="flex h-9 items-center justify-between gap-2 rounded-[10px] border border-border-strong bg-base px-3 text-left text-sm outline-none cursor-pointer transition-[border-color,box-shadow] duration-(--dur-1) focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/25">
-        <SelectValue className="truncate data-[placeholder]:text-muted">{({ selectedText, isPlaceholder }) => isPlaceholder ? (placeholder ?? '请选择') : selectedText}</SelectValue>
+        <SelectValue className="truncate data-[placeholder]:text-muted">{({ selectedText, isPlaceholder }) => isPlaceholder ? (placeholder ?? tr(C).select) : selectedText}</SelectValue>
         <span aria-hidden className="text-muted">▾</span>
       </RButton>
       {description && <Text slot="description" className="text-xs text-muted">{description}</Text>}
@@ -263,6 +265,33 @@ export function ActionMenu({ label, items, onAction, trigger, placement = 'botto
   )
 }
 
+/** Header language picker: shows the current language's short code, opens a two-item menu. */
+export function LangSwitch({ className }: { className?: string }) {
+  const lang = useLang()
+  const cur = LANGS.find((l) => l.id === lang) ?? LANGS[0]
+  return (
+    <MenuTrigger>
+      <RButton aria-label={`${tr(C).language}: ${cur.label}`}
+        className={cx('inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 text-[12px] font-semibold text-subtle outline-none transition-[background-color,color,transform] duration-(--dur-1) hover:bg-overlay hover:text-text focus-visible:ring-2 focus-visible:ring-accent data-[pressed]:scale-95', className)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M4 5h8M8 3v2M10.5 5c-.8 3.6-3 6.5-6.5 8.2M6 8.5c1 2 2.8 3.6 5 4.5" /><path d="m12.5 21 4-9 4 9M13.8 18h5.4" />
+        </svg>
+        <span className="min-w-[1.25rem] text-center">{cur.short}</span>
+      </RButton>
+      <Popover placement="bottom end" className={cx('min-w-[160px]', popoverCls)}>
+        <Menu aria-label={tr(C).language} className="outline-none" selectionMode="single" selectedKeys={[lang]}
+          onAction={(k) => setLang(k as Lang)}>
+          {LANGS.map((l) => (
+            <MenuItem key={l.id} id={l.id} textValue={l.label} className={menuItemCls}>
+              {({ isSelected }) => <><span className="flex-1" lang={l.id === 'zh' ? 'zh-CN' : 'en'}>{l.label}</span>{isSelected && <IconCheck size={14} />}</>}
+            </MenuItem>
+          ))}
+        </Menu>
+      </Popover>
+    </MenuTrigger>
+  )
+}
+
 // ---- overlays ---------------------------------------------------------------
 
 function useGuardedClose(onOpenChange: (v: boolean) => void, dirty?: boolean) {
@@ -272,8 +301,8 @@ function useGuardedClose(onOpenChange: (v: boolean) => void, dirty?: boolean) {
     onOpenChange(v)
   }, [dirty, onOpenChange])
   const guard = (
-    <Confirm isOpen={ask} onOpenChange={setAsk} title="放弃未保存的修改？" danger confirmLabel="放弃修改"
-      body="表单里有还没保存的修改，关闭后会丢失。" onConfirm={() => onOpenChange(false)} />
+    <Confirm isOpen={ask} onOpenChange={setAsk} title={tr(C).discardTitle} danger confirmLabel={tr(C).discard}
+      body={tr(C).discardBody} onConfirm={() => onOpenChange(false)} />
   )
   return [request, guard] as const
 }
@@ -291,7 +320,7 @@ export function ModalDialog({ isOpen, onOpenChange, title, children, footer, wid
         <Dialog className="outline-none" aria-label={label ?? (typeof title === 'string' ? title : undefined)}>
           <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-2 sm:px-6">
             <Heading slot="title" className="min-w-0 text-lg font-semibold [overflow-wrap:anywhere]">{title}</Heading>
-            <IconButton label="关闭" onPress={() => request(false)}><IconX /></IconButton>
+            <IconButton label={tr(C).close} onPress={() => request(false)}><IconX /></IconButton>
           </div>
           <div className="px-5 py-3 sm:px-6">{children}</div>
           {footer && <div className="flex flex-wrap justify-end gap-2 border-t px-5 py-4 sm:px-6">{footer}</div>}
@@ -313,14 +342,14 @@ export function Drawer({ isOpen, onOpenChange, title, label, children, actions, 
       <Modal className={cx('fixed flex flex-col bg-surface shadow-[0_8px_24px_rgb(0_0_0/0.18)] outline-none',
         'inset-x-0 bottom-0 max-h-[92vh] rounded-t-[20px] border-t data-[entering]:animate-sheet-in data-[exiting]:animate-sheet-out',
         'sm:inset-y-0 sm:right-0 sm:left-auto sm:max-h-none sm:w-full sm:max-w-[640px] sm:rounded-none sm:border-t-0 sm:border-l sm:data-[entering]:animate-drawer-in sm:data-[exiting]:animate-drawer-out')}>
-        <Dialog className="flex min-h-0 flex-1 flex-col outline-none" aria-label={label ?? (typeof title === 'string' ? title : '详情')}>
+        <Dialog className="flex min-h-0 flex-1 flex-col outline-none" aria-label={label ?? (typeof title === 'string' ? title : tr(C).details)}>
           <div className="shrink-0 border-b bg-surface">
             <div className="flex justify-center pt-2 sm:hidden" aria-hidden><span className="h-1 w-10 rounded-full bg-hl-high" /></div>
             <div className="flex items-center justify-between gap-2 px-4 py-3 sm:px-6 sm:py-4">
               <div key={contentKey} className="min-w-0 flex-1 animate-content-in text-lg font-semibold">{title}</div>
               <div className="flex shrink-0 items-center gap-1">
                 {actions}
-                <IconButton label="关闭" onPress={() => request(false)}><IconX /></IconButton>
+                <IconButton label={tr(C).close} onPress={() => request(false)}><IconX /></IconButton>
               </div>
             </div>
           </div>
@@ -334,7 +363,7 @@ export function Drawer({ isOpen, onOpenChange, title, label, children, actions, 
   )
 }
 
-export function Confirm({ isOpen, onOpenChange, title, body, confirmLabel = '确认', onConfirm, danger, requireText }: {
+export function Confirm({ isOpen, onOpenChange, title, body, confirmLabel, onConfirm, danger, requireText }: {
   isOpen: boolean; onOpenChange: (v: boolean) => void; title: string; body: ReactNode; confirmLabel?: string; onConfirm: () => void; danger?: boolean
   /** The user must type this exactly (e.g. the number of affected users) before confirming. */
   requireText?: string
@@ -347,13 +376,13 @@ export function Confirm({ isOpen, onOpenChange, title, body, confirmLabel = '确
   return (
     <ModalDialog isOpen={isOpen} onOpenChange={onOpenChange} title={title}
       footer={<>
-        <Button onPress={() => onOpenChange(false)}>取消</Button>
-        <Button variant={danger ? 'danger-solid' : 'primary'} isDisabled={blocked} onPress={go}>{sticky?.confirmLabel}</Button>
+        <Button onPress={() => onOpenChange(false)}>{tr(C).cancel}</Button>
+        <Button variant={danger ? 'danger-solid' : 'primary'} isDisabled={blocked} onPress={go}>{sticky?.confirmLabel ?? tr(C).confirm}</Button>
       </>}>
       <div className="text-sm text-subtle">{sticky?.body}</div>
       {sticky?.requireText && (
         <form className="mt-4" onSubmit={(e) => { e.preventDefault(); go() }}>
-          <Field label={`输入 ${sticky.requireText} 确认`} value={typed} onChange={setTyped} autoFocus inputMode="numeric" />
+          <Field label={tr(C).typeToConfirm(sticky.requireText)} value={typed} onChange={setTyped} autoFocus inputMode="numeric" />
         </form>
       )}
     </ModalDialog>
@@ -412,7 +441,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 export function RelTime({ ts, text, className }: { ts: number; text: string; className?: string }) {
   if (!ts) return <span className={className}>{text}</span>
   const d = new Date(ts * 1000)
-  return <time dateTime={d.toISOString()} title={d.toLocaleString('zh-CN', { hour12: false })} className={className}>{text}</time>
+  return <time dateTime={d.toISOString()} title={d.toLocaleString(locale(), { hour12: false })} className={className}>{text}</time>
 }
 
 // ---- toasts -----------------------------------------------------------------
@@ -482,7 +511,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 className="shrink-0 cursor-pointer rounded-full bg-overlay px-3 py-1 text-[13px] font-medium text-text outline-none hover:bg-hl-med focus-visible:ring-2 focus-visible:ring-accent">{t.action.label}</button>
             )}
             {(t.tone === 'bad' || t.action || t.tone === 'pending' || t.link) ? (
-              <button type="button" aria-label="关闭通知" onClick={() => dismiss(t.id)}
+              <button type="button" aria-label={tr(C).dismiss} onClick={() => dismiss(t.id)}
                 className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-full text-muted outline-none hover:bg-overlay hover:text-text focus-visible:ring-2 focus-visible:ring-accent"><IconX size={14} /></button>
             ) : <span className="w-2" />}
           </div>
@@ -508,7 +537,7 @@ export async function copyText(text: string): Promise<void> {
   ta.select()
   const ok = document.execCommand('copy')
   ta.remove()
-  if (!ok) throw new Error('复制失败')
+  if (!ok) throw new Error(tr(C).copyFailed)
 }
 
 export function useCopy() {
@@ -521,7 +550,7 @@ export function useCopy() {
       setCopied(true)
       clearTimeout(t.current)
       t.current = setTimeout(() => setCopied(false), 1500)
-    }, () => toast('bad', '复制失败，请手动选择文本'))
+    }, () => toast('bad', tr(C).copyFailedManual))
   }, [toast])
   return [copied, copy] as const
 }
@@ -537,25 +566,25 @@ export function CopyText({ text, display, className }: { text: string; display?:
   return (
     <RButton
       onPress={() => copy(text)}
-      aria-label={copied ? '已复制' : `复制 ${display ?? ''}`.trim()}
+      aria-label={copied ? tr(C).copied : (display ? tr(C).copyX(display) : tr(C).copy)}
       className={cx('group inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-[8px] font-mono text-[12px] text-subtle outline-none cursor-pointer hover:text-text focus-visible:ring-2 focus-visible:ring-accent', className)}
     >
-      <span className={cx('truncate', copied && display && 'text-good')}>{copied && display ? '已复制' : (display ?? text)}</span>
+      <span className={cx('truncate', copied && display && 'text-good')}>{copied && display ? tr(C).copied : (display ?? text)}</span>
       <CopyIcon copied={copied} className={copied ? '' : 'opacity-60 group-hover:opacity-100'} />
-      {copied && !display && <span className="shrink-0 animate-content-in font-sans text-[11px] text-good">已复制</span>}
+      {copied && !display && <span className="shrink-0 animate-content-in font-sans text-[11px] text-good">{tr(C).copied}</span>}
     </RButton>
   )
 }
 
 /** A regular button that copies and confirms inline. */
-export function CopyButton({ text, label = '复制', size = 'sm', variant = 'secondary', className, isDisabled }: {
+export function CopyButton({ text, label, size = 'sm', variant = 'secondary', className, isDisabled }: {
   text: string | (() => string); label?: string; size?: 'sm' | 'md'; variant?: Variant; className?: string; isDisabled?: boolean
 }) {
   const [copied, copy] = useCopy()
   return (
     <Button size={size} variant={variant} className={className} isDisabled={isDisabled} onPress={() => copy(typeof text === 'function' ? text() : text)}>
       <CopyIcon copied={copied} />
-      <span key={String(copied)} className="animate-content-in">{copied ? '已复制' : label}</span>
+      <span key={String(copied)} className="animate-content-in">{copied ? tr(C).copied : (label ?? tr(C).copy)}</span>
     </Button>
   )
 }
@@ -585,7 +614,7 @@ export function CheckList<T extends string | number>({ label, options, value, on
   return (
     <fieldset className="flex min-w-0 flex-col gap-2">
       <legend className="mb-1.5 text-[13px] font-medium text-subtle">{label}</legend>
-      {options.length === 0 ? <div className="text-[13px] text-muted">{empty ?? '暂无选项'}</div> : (
+      {options.length === 0 ? <div className="text-[13px] text-muted">{empty ?? tr(C).noOptions}</div> : (
         <div className="flex flex-col gap-2 rounded-[10px] border bg-base p-3">
           {options.map((o) => (
             <Checkbox key={String(o.id)} isSelected={value.includes(o.id)}

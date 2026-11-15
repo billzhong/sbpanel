@@ -40,10 +40,10 @@ func (m *Master) snapshot(ids []int64) []userSnap {
 // the number of users affected. Status is recomputed and nodes reconciled once.
 func (m *Master) applyBatch(req batchReq) (int64, error) {
 	if len(req.IDs) == 0 {
-		return 0, fmt.Errorf("没有选择用户")
+		return 0, fmt.Errorf("No users selected")
 	}
 	if len(req.IDs) > 5000 {
-		return 0, fmt.Errorf("一次最多操作 5000 个用户")
+		return 0, fmt.Errorf("At most 5000 users per batch")
 	}
 	var num float64
 	var groups []int64
@@ -51,19 +51,19 @@ func (m *Master) applyBatch(req batchReq) (int64, error) {
 	switch req.Action {
 	case "restore":
 		if err := json.Unmarshal(req.Value, &snaps); err != nil {
-			return 0, fmt.Errorf("value 需要是快照数组")
+			return 0, fmt.Errorf("value must be an array of snapshots")
 		}
 	case "extend_days", "add_traffic":
 		if err := json.Unmarshal(req.Value, &num); err != nil {
-			return 0, fmt.Errorf("value 需要是数字")
+			return 0, fmt.Errorf("value must be a number")
 		}
 	case "set_groups":
 		if err := json.Unmarshal(req.Value, &groups); err != nil {
-			return 0, fmt.Errorf("value 需要是分组 id 数组")
+			return 0, fmt.Errorf("value must be an array of group ids")
 		}
 	case "enable", "disable", "reset_usage", "delete":
 	default:
-		return 0, fmt.Errorf("未知操作：%s", req.Action)
+		return 0, fmt.Errorf("Unknown action: %s", req.Action)
 	}
 	ph := strings.TrimSuffix(strings.Repeat("?,", len(req.IDs)), ",")
 	args := make([]any, len(req.IDs))

@@ -120,12 +120,12 @@ func TestParsePEMPair(t *testing.T) {
 	}
 	// mismatched key
 	other := mkCert(t, []string{"b.example.com"}, n.Add(-time.Hour), n.Add(time.Hour))
-	if _, _, _, err := parsePEMPair(c.certPEM, other.keyPEM, n); err == nil || !strings.Contains(err.Error(), "不匹配") {
+	if _, _, _, err := parsePEMPair(c.certPEM, other.keyPEM, n); err == nil || !strings.Contains(err.Error(), "does not match") || !strings.Contains(L(langZH, err.Error()), "不匹配") {
 		t.Fatalf("mismatch: %v", err)
 	}
 	// expired
 	old := mkCert(t, []string{"old.example.com"}, n.Add(-48*time.Hour), n.Add(-time.Hour))
-	if in, _, _, err := parsePEMPair(old.certPEM, old.keyPEM, n); err == nil || !strings.Contains(err.Error(), "过期") || in.SANs[0] != "old.example.com" {
+	if in, _, _, err := parsePEMPair(old.certPEM, old.keyPEM, n); err == nil || !strings.Contains(err.Error(), "expired") || !strings.Contains(L(langZH, err.Error()), "过期") || in.SANs[0] != "old.example.com" {
 		t.Fatalf("expired: %v", err)
 	}
 	// garbage
@@ -269,7 +269,7 @@ func TestRenewalSchedule(t *testing.T) {
 	}
 	var detail string
 	m.db.QueryRow(`SELECT detail FROM events WHERE kind='cert_expiring' ORDER BY id DESC LIMIT 1`).Scan(&detail)
-	if !strings.Contains(detail, "up.example.com") || !strings.Contains(detail, "手动替换") {
+	if !strings.Contains(detail, "up.example.com") || !strings.Contains(detail, "replaced manually") || !strings.Contains(L(langZH, detail), "手动替换") {
 		t.Fatalf("detail %q", detail)
 	}
 	if fi.calls != 5 {
@@ -564,20 +564,26 @@ func TestCloudflareProviderAndDNS(t *testing.T) {
 	}
 	t.Cleanup(func() { m.db.Close() })
 	h := m.routes()
-	sess := func(method, path string, body any) *httptest.ResponseRecorder {
+	sess := func(method, path string, body any, lang ...string) *httptest.ResponseRecorder {
 		var b []byte
 		if body != nil {
 			b, _ = json.Marshal(body)
 		}
 		req := httptest.NewRequest(method, path, strings.NewReader(string(b)))
 		req.Header.Set("Content-Type", "application/json")
+		if len(lang) > 0 {
+			req.Header.Set("X-Lang", lang[0])
+		}
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: m.newSession("admin")})
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		return w
 	}
-	if w := sess("POST", "/api/dns/providers", map[string]string{"token": "wrong-token-0123456789"}); w.Code != 400 || !strings.Contains(w.Body.String(), "令牌") {
+	if w := sess("POST", "/api/dns/providers", map[string]string{"token": "wrong-token-0123456789"}); w.Code != 400 || !strings.Contains(w.Body.String(), "rejected the token") {
 		t.Fatalf("bad token: %d %s", w.Code, w.Body)
+	}
+	if w := sess("POST", "/api/dns/providers", map[string]string{"token": "wrong-token-0123456789"}, "zh-CN"); w.Code != 400 || !strings.Contains(w.Body.String(), "令牌") {
+		t.Fatalf("bad token (zh): %d %s", w.Code, w.Body)
 	}
 	w := sess("POST", "/api/dns/providers", map[string]string{"token": token, "name": "主账号"})
 	if w.Code != 200 {

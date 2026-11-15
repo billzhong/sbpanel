@@ -134,7 +134,7 @@ func inspectCert(w *pb.CertWatch) *pb.CertStatus {
 	st := &pb.CertStatus{Id: w.Id, CertPath: w.CertPath}
 	cb, err := os.ReadFile(w.CertPath)
 	if err != nil {
-		st.Error = "读取证书失败: " + err.Error()
+		st.Error = "Can't read the certificate: " + err.Error()
 		return st
 	}
 	var leaf *x509.Certificate
@@ -146,14 +146,14 @@ func inspectCert(w *pb.CertWatch) *pb.CertStatus {
 		}
 		if blk.Type == "CERTIFICATE" {
 			if leaf, err = x509.ParseCertificate(blk.Bytes); err != nil {
-				st.Error = "解析证书失败: " + err.Error()
+				st.Error = "Can't parse the certificate: " + err.Error()
 				return st
 			}
 			break
 		}
 	}
 	if leaf == nil {
-		st.Error = "文件里没有 PEM 证书"
+		st.Error = "No PEM certificate in the file"
 		return st
 	}
 	st.NotBefore, st.NotAfter = leaf.NotBefore.Unix(), leaf.NotAfter.Unix()
@@ -173,9 +173,9 @@ func inspectCert(w *pb.CertWatch) *pb.CertStatus {
 	if w.KeyPath != "" {
 		kb, err := os.ReadFile(w.KeyPath)
 		if err != nil {
-			st.Error = "读取私钥失败: " + err.Error()
+			st.Error = "Can't read the private key: " + err.Error()
 		} else if _, err := tls.X509KeyPair(cb, kb); err != nil {
-			st.Error = "证书与私钥不匹配: " + err.Error()
+			st.Error = "The certificate and private key don't match: " + err.Error()
 		}
 	}
 	return st

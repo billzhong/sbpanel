@@ -57,7 +57,7 @@ func parseProfile(js string) (*subgen.Profile, error) {
 	d := json.NewDecoder(strings.NewReader(js))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&p); err != nil {
-		return nil, fmt.Errorf("JSON 格式错误：%v", err)
+		return nil, fmt.Errorf("Invalid JSON: %v", err)
 	}
 	return &p, nil
 }
@@ -167,6 +167,23 @@ type subProfileJSON struct {
 	Description string `json:"description"`
 }
 
+// presetEN holds English names for the built-in presets' (Chinese) names and descriptions.
+// Profiles created from a preset store those strings; as long as the admin hasn't renamed them,
+// they are shown in the reader's language.
+var presetEN = map[string]string{
+	"标准分流": "Standard", "流媒体、AI、广告拦截、国内直连，其余走代理": "Streaming, AI and ad blocking rules; mainland China direct, everything else proxied",
+	"全局代理": "Global proxy", "除局域网外全部走代理": "Everything except the LAN goes through the proxy",
+	"绕过大陆": "Bypass mainland China", "中国大陆域名与 IP 直连，其余走代理": "Mainland China domains and IPs go direct, everything else is proxied",
+	"极简": "Minimal", "只有节点选择和自动选择，不下载任何规则": "Only node selection and auto-select; no rule downloads",
+}
+
+func presetText(lang, s string) string {
+	if en, ok := presetEN[s]; ok && lang != langZH {
+		return en
+	}
+	return s
+}
+
 // selectableProfiles lists what the subscription page may offer, plus the slug in effect.
 func (m *Master) selectableProfiles(u subUser, req string) ([]subProfileJSON, string) {
 	out := []subProfileJSON{}
@@ -200,6 +217,7 @@ func (m *Master) apiProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []profileOut{}
 	for _, p := range ps {
+		p.Name, p.Description = presetText(langOf(w), p.Name), presetText(langOf(w), p.Description)
 		o := profileOut{profileRow: p, HasDraft: p.Draft != "" && p.Draft != p.JSON, GroupIDs: []int64{}}
 		m.db.QueryRow(`SELECT COUNT(*) FROM users WHERE sub_profile_id=?`, p.ID).Scan(&o.Users)
 		o.GroupIDs, _ = scanRows(m, `SELECT id FROM groups WHERE sub_profile_id=? ORDER BY id`, []any{p.ID}, func(s func(...any) error) (int64, error) {
@@ -223,7 +241,7 @@ type catalogItemJSON struct {
 func (m *Master) apiRoutingCatalog(w http.ResponseWriter, r *http.Request) {
 	items := []catalogItemJSON{}
 	for _, c := range subgen.Catalog {
-		items = append(items, catalogItemJSON{c.Key, c.Label, c.Kind, c.Geosite, c.Geoip, c.Surge})
+		items = append(items, catalogItemJSON{c.Key, T(langOf(w), c.Label), c.Kind, c.Geosite, c.Geoip, c.Surge})
 	}
 	order := map[string]int{"private": 0, "cn": 1, "global": 2, "ads": 3, "ai": 4, "streaming": 5, "service": 6, "games": 7}
 	sort.Slice(items, func(i, j int) bool {
@@ -234,7 +252,7 @@ func (m *Master) apiRoutingCatalog(w http.ResponseWriter, r *http.Request) {
 	})
 	presets := []map[string]string{}
 	for _, p := range subgen.Presets {
-		presets = append(presets, map[string]string{"slug": p.Slug, "name": p.Name, "description": p.Description})
+		presets = append(presets, map[string]string{"slug": p.Slug, "name": presetText(langOf(w), p.Name), "description": presetText(langOf(w), p.Description)})
 	}
 	bases := map[string]string{"mihomo": subgen.MihomoBase, "singbox": subgen.SingboxBase, "surge": subgen.SurgeBase}
 	writeJSON(w, 200, map[string]any{
@@ -255,11 +273,11 @@ func (m *Master) apiCreateProfile(w http.ResponseWriter, r *http.Request) {
 		From        int64  `json:"from"`
 	}
 	if err := readJSON(r, &req); err != nil || strings.TrimSpace(req.Name) == "" {
-		writeErr(w, 400, "名称不能为空")
+		writeErr(w, 400, "Name is required")
 		return
 	}
 	if !slugRe.MatchString(req.Slug) {
-		writeErr(w, 400, "标识只能包含小写字母、数字和 -，最长 32 位")
+		writeErr(w, 400, "The slug may contain lowercase letters, digits and - (up to 32 characters)")
 		return
 	}
 	var js string
@@ -267,14 +285,14 @@ func (m *Master) apiCreateProfile(w http.ResponseWriter, r *http.Request) {
 	case req.From > 0:
 		p, ok := m.profileByID(req.From)
 		if !ok {
-			writeErr(w, 404, "源配置不存在")
+			writeErr(w, 404, "Source profile not found")
 			return
 		}
 		js = nz(p.Draft, p.JSON)
 	default:
 		p := subgen.PresetBySlug(nz(req.Preset, "standard"))
 		if p == nil {
-			writeErr(w, 400, "未知预设")
+			writeErr(w, 400, "Unknown preset")
 			return
 		}
 		b, _ := json.Marshal(p)
@@ -283,7 +301,7 @@ func (m *Master) apiCreateProfile(w http.ResponseWriter, r *http.Request) {
 	res, err := m.db.Exec(`INSERT INTO sub_profiles(slug, name, description, json, sort, published_at, updated_at)
 		VALUES(?,?,?,?,(SELECT COALESCE(MAX(sort),0)+1 FROM sub_profiles),?,?)`, req.Slug, strings.TrimSpace(req.Name), req.Description, js, now(), now())
 	if err != nil {
-		writeErr(w, 400, "标识已存在")
+		writeErr(w, 400, "This slug already exists")
 		return
 	}
 	id, _ := res.LastInsertId()
@@ -303,20 +321,21 @@ func (m *Master) apiProfile(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathID(r)
 	p, ok := m.profileByID(id)
 	if !ok {
-		writeErr(w, 404, "配置不存在")
+		writeErr(w, 404, "Profile not found")
 		return
 	}
 	draft := p.Draft
 	if draft == p.JSON {
 		draft = ""
 	}
+	p.Name, p.Description = presetText(langOf(w), p.Name), presetText(langOf(w), p.Description)
 	writeJSON(w, 200, map[string]any{"profile": p, "published": rawOrNull(p.JSON), "draft": rawOrNull(draft)})
 }
 
 func (m *Master) apiUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathID(r)
 	if _, ok := m.profileByID(id); !ok {
-		writeErr(w, 404, "配置不存在")
+		writeErr(w, 404, "Profile not found")
 		return
 	}
 	var req struct {
@@ -332,18 +351,18 @@ func (m *Master) apiUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name != nil {
 		if strings.TrimSpace(*req.Name) == "" {
-			writeErr(w, 400, "名称不能为空")
+			writeErr(w, 400, "Name is required")
 			return
 		}
 		m.db.Exec(`UPDATE sub_profiles SET name=? WHERE id=?`, strings.TrimSpace(*req.Name), id)
 	}
 	if req.Slug != nil {
 		if !slugRe.MatchString(*req.Slug) {
-			writeErr(w, 400, "标识只能包含小写字母、数字和 -，最长 32 位")
+			writeErr(w, 400, "The slug may contain lowercase letters, digits and - (up to 32 characters)")
 			return
 		}
 		if _, err := m.db.Exec(`UPDATE sub_profiles SET slug=? WHERE id=?`, *req.Slug, id); err != nil {
-			writeErr(w, 400, "标识已存在")
+			writeErr(w, 400, "This slug already exists")
 			return
 		}
 	}
@@ -364,11 +383,11 @@ func (m *Master) apiDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathID(r)
 	p, ok := m.profileByID(id)
 	if !ok {
-		writeErr(w, 404, "配置不存在")
+		writeErr(w, 404, "Profile not found")
 		return
 	}
 	if p.IsDefault {
-		writeErr(w, 400, "默认配置不能删除，请先把其他配置设为默认")
+		writeErr(w, 400, "The default profile can't be deleted; make another profile the default first")
 		return
 	}
 	m.db.Exec(`UPDATE users SET sub_profile_id=0 WHERE sub_profile_id=?`, id)
@@ -384,7 +403,7 @@ func (m *Master) apiSaveProfileDraft(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathID(r)
 	p, ok := m.profileByID(id)
 	if !ok {
-		writeErr(w, 404, "配置不存在")
+		writeErr(w, 404, "Profile not found")
 		return
 	}
 	var req struct {
@@ -423,7 +442,7 @@ func (m *Master) apiPreviewProfile(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathID(r)
 	p, ok := m.profileByID(id)
 	if !ok {
-		writeErr(w, 404, "配置不存在")
+		writeErr(w, 404, "Profile not found")
 		return
 	}
 	var req struct {
@@ -436,7 +455,7 @@ func (m *Master) apiPreviewProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := subgen.ClientCaps[req.Client]; !ok {
-		writeErr(w, 400, "未知客户端")
+		writeErr(w, 400, "Unknown client")
 		return
 	}
 	es, u, err := m.previewEntries(r, req.UserID)
@@ -455,7 +474,7 @@ func (m *Master) apiPreviewProfile(w http.ResponseWriter, r *http.Request) {
 			return "", nil, err.Error()
 		}
 		if err := subgen.ValidateOutput(req.Client, res.Body); err != nil {
-			return string(res.Body), res.Warnings, "输出校验失败：" + err.Error()
+			return string(res.Body), res.Warnings, fmt.Sprintf("Output validation failed: %v", err)
 		}
 		return string(res.Body), res.Warnings, ""
 	}
@@ -465,10 +484,8 @@ func (m *Master) apiPreviewProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	body, warns, perr := run(cur)
 	pub, _, _ := run(p.JSON)
-	if warns == nil {
-		warns = []string{}
-	}
-	writeJSON(w, 200, map[string]any{"body": body, "warnings": warns, "error": perr, "published_body": pub, "nodes": len(es)})
+	lang := langOf(w)
+	writeJSON(w, 200, map[string]any{"body": body, "warnings": localizeAll(lang, warns), "error": L(lang, perr), "published_body": pub, "nodes": len(es)})
 }
 
 // previewEntries: userID>0 uses that user's real endpoints; 0 lists every inbound.
@@ -476,7 +493,7 @@ func (m *Master) previewEntries(r *http.Request, userID int64) ([]subEntry, subU
 	if userID > 0 {
 		var tok string
 		if err := m.db.QueryRow(`SELECT sub_token FROM users WHERE id=?`, userID).Scan(&tok); err != nil {
-			return nil, subUser{}, fmt.Errorf("用户不存在")
+			return nil, subUser{}, fmt.Errorf("User not found")
 		}
 		u, err := m.loadSubUser(tok)
 		if err != nil {
@@ -494,7 +511,7 @@ func (m *Master) apiPublishProfile(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathID(r)
 	p, ok := m.profileByID(id)
 	if !ok {
-		writeErr(w, 404, "配置不存在")
+		writeErr(w, 404, "Profile not found")
 		return
 	}
 	if p.Draft == "" {
@@ -517,6 +534,9 @@ func (m *Master) apiPublishProfile(w http.ResponseWriter, r *http.Request) {
 	// keep the last 20 versions
 	m.db.Exec(`DELETE FROM sub_profile_history WHERE profile_id=? AND id NOT IN (SELECT id FROM sub_profile_history WHERE profile_id=? ORDER BY id DESC LIMIT 20)`, id, id)
 	m.audit(r, "profile.publish", fmtID(id), p.Slug)
+	for c, ws := range warns {
+		warns[c] = localizeAll(langOf(w), ws)
+	}
 	writeJSON(w, 200, map[string]any{"ok": true, "changed": true, "warnings": warns})
 }
 
@@ -552,7 +572,7 @@ func (m *Master) apiRestoreProfile(w http.ResponseWriter, r *http.Request) {
 	var js, pub string
 	if err := m.db.QueryRow(`SELECT h.json, p.json FROM sub_profile_history h JOIN sub_profiles p ON p.id=h.profile_id
 		WHERE h.id=? AND h.profile_id=?`, hid, id).Scan(&js, &pub); err == sql.ErrNoRows {
-		writeErr(w, 404, "版本不存在")
+		writeErr(w, 404, "Version not found")
 		return
 	}
 	if js == pub {
@@ -593,7 +613,7 @@ func checkProfileID(q interface {
 	var n int
 	q.QueryRow(`SELECT COUNT(*) FROM sub_profiles WHERE id=?`, id).Scan(&n)
 	if n == 0 {
-		return fmt.Errorf("分流配置不存在")
+		return fmt.Errorf("Routing profile not found")
 	}
 	return nil
 }
