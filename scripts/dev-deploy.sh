@@ -76,7 +76,7 @@ dirty=""
 VERSION="dev-$(date +%m%d.%H%M)-$sha$dirty"
 if [ "$skip_web" = 0 ] && [ "$what" != nodes ]; then
 	say "building web"
-	make -s web >/dev/null
+	if [ -e web/node_modules ]; then (cd web && pnpm -s build >/dev/null); else make -s web >/dev/null; fi
 fi
 out=$(mktemp -d "${TMPDIR:-/tmp}/sbp-bin.XXXXXX")
 bins="sbmaster sbnode"
