@@ -372,7 +372,7 @@ func TestTrafficLimitCleanupAndMigration(t *testing.T) {
 	m2.db.Exec(`UPDATE users SET last_reset_at=? WHERE id=1`, h)
 	m2.db.Exec(`INSERT INTO traffic_hour(ts, node_id, user_id, inbound, outbound, up, down, conns) VALUES
 		(?, 'n1', 1, 'home-a', 'direct', 1, 2, 1), (?, 'n1', 1, 'main', 'direct', 3, 4, 1), (?, 'n1', 1, 'main', 'direct', 100, 100, 1)`, h, h, h-7200)
-	v10 := migrations[len(migrations)-1]
+	v10 := migrations[10-2] // migrations[i] upgrades to version i+2
 	ins := v10[strings.Index(v10, "INSERT INTO inbound_usage"):]
 	if _, err := m2.db.Exec(ins); err != nil {
 		t.Fatal(err)

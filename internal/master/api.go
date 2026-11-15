@@ -120,6 +120,7 @@ func (m *Master) routes() http.Handler {
 	mux.HandleFunc("POST /api/nodes/{id}/token", a(m.apiNodeToken))
 	mux.HandleFunc("GET /api/nodes/{id}/spec", a(m.apiNodeSpec))
 	mux.HandleFunc("GET /api/nodes/{id}/conns", a(m.apiNodeConns))
+	mux.HandleFunc("GET /api/nodes/{id}/metrics", a(m.apiNodeMetrics))
 	mux.HandleFunc("POST /api/nodes/{id}/conns/close", a(m.apiCloseConns))
 
 	mux.HandleFunc("GET /api/inbounds", a(m.apiInbounds))

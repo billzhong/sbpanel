@@ -35,3 +35,8 @@ export const IconGlobe = (p: P) => <I {...p}><circle cx="12" cy="12" r="9" /><pa
 export const IconCheck = (p: P) => <I {...p}><path d="m5 12 5 5L20 7" /></I>
 export const IconAlert = (p: P) => <I {...p}><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></I>
 export const IconMenu = (p: P) => <I {...p}><path d="M4 6h16M4 12h16M4 18h16" /></I>
+export const IconChevron = ({ dir, size = 16, className }: { dir: 'up' | 'down' | 'left' | 'right'; size?: number; className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+    <path d={{ up: 'm6 15 6-6 6 6', down: 'm6 9 6 6 6-6', left: 'm15 6-6 6 6 6', right: 'm9 6 6 6-6 6' }[dir]} />
+  </svg>
+)

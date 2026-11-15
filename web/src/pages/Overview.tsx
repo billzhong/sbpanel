@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { api, type Overview, type SeriesResp, type Node, type Template, type User } from '../lib/api'
+import { api, type Overview, type SeriesResp, type Node, type ProcInfo, type Template, type User } from '../lib/api'
 import { filterDefs } from '../lib/users'
 import { bytes, rate, pct, duration, ago } from '../lib/fmt'
 import { go, href } from '../lib/router'
@@ -9,6 +9,7 @@ import { TimeChart, ShareList, TweenBytes } from '../ui/charts'
 import { IconArrowDown, IconArrowUp, IconUsers, IconServer } from '../ui/icons'
 import { tr } from '../i18n'
 import { O } from '../i18n/overview'
+import { NM } from '../i18n/nodedetail'
 
 export function OverviewPage() {
   const ov = useQuery({ queryKey: ['overview'], queryFn: () => api<Overview>('/overview'), refetchInterval: 5000 })
@@ -79,6 +80,12 @@ export function OverviewPage() {
       <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
         {o?.nodes.map((n) => <NodeCard key={n.id} n={n} />)}
       </div>
+      {o?.master && !o.nodes.some((n) => n.master) && (
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-[16px] border bg-surface px-5 py-3 text-xs" title={tr(NM).panelHint}>
+          <span className="text-[13px] font-medium">{tr(NM).panelProc}</span>
+          <div className="min-w-[240px] flex-1"><ProcLine name={tr(NM).sbmaster} p={o.master} color={PROC_COLOR.sbmaster} /></div>
+        </div>
+      )}
     </>
   )
 }
@@ -152,19 +159,75 @@ export function nodeStatus(n: Node): { tone: 'good' | 'warn' | 'bad' | 'neutral'
   return { tone: 'good', text: t.stOnline }
 }
 
+/** CPU % with one decimal below 10 (process usage is usually small). */
+export const pctText = (v: number) => (v < 10 ? v.toFixed(1) : v.toFixed(0)) + '%'
+
+/** Each sbpanel process keeps one colour everywhere: bar segments, swatches, chart lines. */
+export const PROC_COLOR = { sbnode: 'var(--s2)', sbmaster: 'var(--s7)' } as const
+
+/** Machine usage bar (light) with the sbpanel processes' shares drawn solid inside it, in their colours. */
+export function UsageBar({ label, value, total, parts = [], online }: { label: string; value: string; total: number; parts?: { v: number; color: string }[]; online: boolean }) {
+  const v = online ? Math.max(0, Math.min(100, total)) : 0
+  let left = 0
+  const segs = online ? parts.map((p) => { const w = Math.max(0, Math.min(v - left, p.v)); const s = { left, w, color: p.color }; left += w; return s }) : []
+  const tint = v >= 95 ? 'bg-bad/45' : v >= 80 ? 'bg-warn/50' : 'bg-accent/30'
+  return (
+    <div>
+      <div className="mb-1 flex justify-between text-xs text-subtle"><span>{label}</span><span className="tabular">{online ? value : '—'}</span></div>
+      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-overlay" role="progressbar" aria-label={label}
+        aria-valuenow={Math.round(v)} aria-valuemin={0} aria-valuemax={100} aria-valuetext={value}>
+        <div className={cx('absolute inset-y-0 left-0 rounded-full transition-[width,background-color] duration-300', tint)} style={{ width: `${v}%` }} />
+        {segs.map((s, i) => <div key={i} className="absolute inset-y-0 transition-[left,width] duration-300" style={{ left: `${s.left}%`, width: `${s.w}%`, background: s.color }} />)}
+      </div>
+    </div>
+  )
+}
+
+/** One sbpanel process: swatch matching its bar segment, name, CPU and RSS. */
+export function ProcLine({ name, p, color }: { name: string; p?: ProcInfo | null; color: string }) {
+  const m = tr(NM)
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: color }} aria-hidden />
+      <span className="font-mono text-[12px] text-text">{name}</span>
+      {p ? <span className="ml-auto flex shrink-0 gap-3 tabular text-subtle">
+        <span>{m.cpuOf(pctText(p.cpu_pct ?? 0))}</span><span>{m.rss} {bytes(p.rss ?? 0, 0)}</span>
+      </span> : <span className="ml-auto truncate text-muted">{m.noProc}</span>}
+    </div>
+  )
+}
+
+/** Bar segments for the node's sbpanel processes (sbnode, plus sbmaster where the panel runs). */
+export function procParts(n: Node) {
+  const ps = [{ p: n.proc, color: PROC_COLOR.sbnode }, { p: n.master, color: PROC_COLOR.sbmaster }].filter((x) => !!x.p)
+  return {
+    cpu: ps.map((x) => ({ v: x.p!.cpu_pct ?? 0, color: x.color })),
+    mem: ps.map((x) => ({ v: pct(x.p!.rss ?? 0, n.sys?.mem_total ?? 0), color: x.color })),
+  }
+}
+
 export function NodeCard({ n, actions }: { n: Node; actions?: React.ReactNode }) {
   const st = nodeStatus(n)
   const cpu = n.sys?.cpu_pct ?? 0
   const memP = pct(n.sys?.mem_used ?? 0, n.sys?.mem_total ?? 0)
   const month = n.month_up + n.month_down
   const t = tr(O)
+  const m = tr(NM)
+  const pr = procParts(n)
+  const open = href('nodes', { id: n.id })
+  // The whole card opens the detail drawer; buttons and links inside keep their own action.
+  const onCard = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('a,button,[role=button],[role=menu],input')) return
+    if (window.getSelection()?.toString()) return
+    location.hash = open
+  }
   return (
-    <section className="rounded-[16px] border bg-surface p-5">
+    <section onClick={onCard} className="group/card cursor-pointer rounded-[16px] border bg-surface p-5 transition-[border-color,box-shadow] duration-(--dur-1) hover:border-hl-high hover:shadow-[0_2px_10px_rgb(0_0_0/0.05)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <IconServer size={16} className="text-subtle" />
-            <span className="truncate font-semibold">{n.name}</span>
+            <a href={open} className="truncate rounded-[4px] font-semibold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent" aria-label={`${n.name} · ${m.details}`}>{n.name}</a>
             <Badge tone={st.tone} dot>{st.text}</Badge>
           </div>
           <div className="mt-1 truncate text-xs text-muted">
@@ -177,15 +240,16 @@ export function NodeCard({ n, actions }: { n: Node; actions?: React.ReactNode })
       <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-[13px]">
         <Metric label={t.rates} value={n.online ? `${rate(n.rate_down)} / ${rate(n.rate_up)}` : '—'} />
         <Metric label={t.connsUsers} value={n.online ? `${n.active_conns} / ${n.online_users}` : '—'} />
-        <div>
-          <div className="mb-1 flex justify-between text-xs text-subtle"><span>CPU</span><span className="tabular">{n.online ? cpu.toFixed(0) + '%' : '—'}</span></div>
-          <Progress value={n.online ? cpu : 0} />
-        </div>
-        <div>
-          <div className="mb-1 flex justify-between text-xs text-subtle"><span>{t.memory}</span><span className="tabular">{n.online ? `${bytes(n.sys?.mem_used ?? 0, 0)} / ${bytes(n.sys?.mem_total ?? 0, 0)}` : '—'}</span></div>
-          <Progress value={n.online ? memP : 0} />
-        </div>
+        <UsageBar label="CPU" online={n.online} total={cpu} parts={pr.cpu} value={cpu.toFixed(0) + '%'} />
+        <UsageBar label={t.memory} online={n.online} total={memP} parts={pr.mem}
+          value={`${bytes(n.sys?.mem_used ?? 0, 0)} / ${bytes(n.sys?.mem_total ?? 0, 0)}`} />
       </div>
+      {n.online && (
+        <div className="mt-3 flex flex-col gap-1 rounded-[10px] bg-overlay/70 px-3 py-2 text-xs" title={m.procShare}>
+          <ProcLine name={m.sbnode} p={n.proc} color={PROC_COLOR.sbnode} />
+          {n.master && <ProcLine name={m.sbmaster} p={n.master} color={PROC_COLOR.sbmaster} />}
+        </div>
+      )}
       <div className="mt-4 border-t pt-3">
         <div className="mb-1 flex justify-between text-xs text-subtle">
           <span>{t.monthReset(n.reset_day)}</span>

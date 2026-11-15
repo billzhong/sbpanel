@@ -27,6 +27,7 @@ import (
 
 	"sbpanel/internal/pb"
 	"sbpanel/internal/pki"
+	"sbpanel/internal/procstat"
 )
 
 var Version = "dev"
@@ -109,6 +110,7 @@ type Agent struct {
 	client     pb.NodeHubClient
 	lastTotals [2]int64
 	lastRateAt time.Time
+	proc       *procstat.Sampler
 	watchCerts atomic.Pointer[[]*pb.CertWatch]
 	certSend   atomic.Pointer[func(*pb.NodeMsg) error]
 }
@@ -143,7 +145,7 @@ func NewAgent(cfg Config) (*Agent, error) {
 	if cfg.MaxSpool == 0 {
 		cfg.MaxSpool = int(7 * 24 * time.Hour / cfg.Window)
 	}
-	a := &Agent{cfg: cfg, log: log.New(os.Stderr, "[node] ", log.LstdFlags), pushWake: make(chan struct{}, 1)}
+	a := &Agent{cfg: cfg, log: log.New(os.Stderr, "[node] ", log.LstdFlags), pushWake: make(chan struct{}, 1), proc: procstat.New()}
 	a.applyErr.Store("")
 	id, err := readFile(cfg.Dir, fID)
 	if err != nil {
@@ -490,7 +492,7 @@ func (a *Agent) sendStatus(send func(*pb.NodeMsg) error) error {
 	hb := &pb.Heartbeat{
 		AppliedRevision: a.applied.Load(), Sys: sysInfo(), SpoolBacklog: uint64(a.spool.Len()),
 		ActiveConns: int64(a.tracker.ActiveCount()), RateUp: ru, RateDown: rd,
-		ApplyError: a.applyErr.Load().(string),
+		ApplyError: a.applyErr.Load().(string), Proc: a.proc.Sample(),
 	}
 	if err := send(&pb.NodeMsg{M: &pb.NodeMsg_Heartbeat{Heartbeat: hb}}); err != nil {
 		return err

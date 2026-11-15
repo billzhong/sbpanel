@@ -8,6 +8,12 @@ import { locale, tr } from '../../i18n'
 import { C } from '../../i18n/common'
 
 export type ChartSeries = { key: string; label: string; values: number[]; color?: string }
+/** bytes: per-bucket byte counts (tooltip adds the rate); size: a byte amount (memory); rate: bytes/s; pct: 0–100. */
+export type ChartUnit = 'bytes' | 'size' | 'rate' | 'pct'
+
+const fmtAxis = (u: ChartUnit, v: number) => u === 'pct' ? `${+v.toFixed(2)}%` : u === 'rate' ? bytes(v, 0) + '/s' : bytes(v, 0)
+const fmtTip = (u: ChartUnit, v: number, step: number) => u === 'pct' ? `${v.toFixed(1)}%` : u === 'rate' ? bytes(v) + '/s' : u === 'size' ? bytes(v)
+  : `${bytes(v)}<span style="color:var(--muted);margin-left:4px">(${bytes(v / step)}/s)</span>`
 
 /** Max of a 4-interval axis whose ticks are round numbers in a byte unit. */
 function niceMax(v: number): number {
@@ -39,7 +45,7 @@ const MOTION: Record<Kind, [number, Easing]> = {
 const DISSOLVE_MS = 240
 const GRID = { left: 56, right: 12, top: 8, bottom: 26 }
 
-type Snap = { times: number[]; step: number; stacked: boolean; series: ChartSeries[]; theme: number }
+type Snap = { times: number[]; step: number; stacked: boolean; series: ChartSeries[]; theme: number; unit: ChartUnit }
 
 function classify(prev: Snap | null, next: Snap): Kind {
   if (!prev || prev.times.length === 0) return 'first'
@@ -102,11 +108,12 @@ function yMax(s: Snap): number {
     for (const x of s.series) { const v = x.values[i] ?? 0; acc = s.stacked ? acc + v : Math.max(acc, v) }
     max = Math.max(max, acc)
   }
+  if (s.unit === 'pct') return [0.4, 1, 2, 4, 10, 20, 40, 60, 100].find((x) => x >= max * 1.05) ?? Math.ceil(max / 20) * 20
   return niceMax(max)
 }
 
-export function TimeSeriesChart({ times, step, series, stacked = false, height = 240, empty, onBrush }: {
-  times: number[]; step: number; series: ChartSeries[]; stacked?: boolean; height?: number; empty?: ReactNode
+export function TimeSeriesChart({ times, step, series, stacked = false, height = 240, empty, onBrush, unit = 'bytes' }: {
+  times: number[]; step: number; series: ChartSeries[]; stacked?: boolean; height?: number; empty?: ReactNode; unit?: ChartUnit
   /** Drag across the plot to select a sub-range (unix seconds). Return false to reject the selection. */
   onBrush?: (from: number, to: number) => boolean | void
 }) {
@@ -117,8 +124,8 @@ export function TimeSeriesChart({ times, step, series, stacked = false, height =
   const timers = useRef<number[]>([])
   const host = useRef<HTMLDivElement>(null)
   const [brush, setBrush] = useState<{ a: number; b: number } | null>(null)
-  const live = useRef({ times, step, series }) // what the tooltip describes: always the real data, never ghosts
-  live.current = { times, step, series }
+  const live = useRef({ times, step, series, unit }) // what the tooltip describes: always the real data, never ghosts
+  live.current = { times, step, series, unit }
   const total = series.reduce((a, s) => a + s.values.reduce((x, y) => x + y, 0), 0)
 
   const color = (s: ChartSeries, i: number) => cssColor(s.color ?? seriesColor(i))
@@ -159,7 +166,7 @@ export function TimeSeriesChart({ times, step, series, stacked = false, height =
       },
       yAxis: {
         type: 'value', min: 0, max, interval: max / 4,
-        axisLabel: { color: tok('muted'), fontSize: 11, formatter: (v: number) => bytes(v, 0) },
+        axisLabel: { color: tok('muted'), fontSize: 11, formatter: (v: number) => fmtAxis(snap.unit, v) },
         splitLine: { lineStyle: { color: tok('grid'), width: 1 } },
       },
       tooltip: {
@@ -175,7 +182,7 @@ export function TimeSeriesChart({ times, step, series, stacked = false, height =
           const head = `<div style="font-weight:500;margin-bottom:4px" class="tabular">${esc(new Date(L.times[k] * 1000).toLocaleString(locale(), { hour12: false }))}</div>`
           return head + L.series.map((s, i) => `<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:2px 0">`
             + `<span style="display:inline-flex;align-items:center;gap:6px;color:var(--subtle);min-width:0"><i style="flex:none;width:8px;height:8px;border-radius:2px;background:${esc(color(s, i))}"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${esc(s.label)}</span></span>`
-            + `<span class="tabular" style="white-space:nowrap">${bytes(s.values[k] ?? 0)}<span style="color:var(--muted);margin-left:4px">(${bytes((s.values[k] ?? 0) / L.step)}/s)</span></span></div>`).join('')
+            + `<span class="tabular" style="white-space:nowrap">${fmtTip(L.unit, s.values[k] ?? 0, L.step)}</span></div>`).join('')
         },
       },
     }
@@ -198,7 +205,7 @@ export function TimeSeriesChart({ times, step, series, stacked = false, height =
   const render = () => {
     const c = chart.current
     if (!c) return
-    const next: Snap = { times, step, stacked, series, theme }
+    const next: Snap = { times, step, stacked, series, theme, unit }
     const sig = signature(next)
     if (sig === applied.current) return
     applied.current = sig

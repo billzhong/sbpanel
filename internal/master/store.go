@@ -182,6 +182,12 @@ var migrations = []string{
 	  SELECT t.user_id, i.id, SUM(t.up), SUM(t.down) FROM traffic_hour t
 	  JOIN inbounds i ON i.node_id=t.node_id AND i.tag=t.inbound JOIN users u ON u.id=t.user_id
 	  WHERE t.ts >= u.last_reset_at - u.last_reset_at % 3600 GROUP BY t.user_id, i.id`,
+	// v11: per-minute node health (machine + sbnode process) and the master's own process (metrics.go)
+	`CREATE TABLE node_metrics(node_id TEXT NOT NULL, ts INTEGER NOT NULL, n INTEGER NOT NULL,
+	  cpu REAL NOT NULL, mem_used INTEGER NOT NULL, mem_total INTEGER NOT NULL,
+	  proc INTEGER NOT NULL, proc_cpu REAL NOT NULL, proc_rss INTEGER NOT NULL,
+	  rate_up INTEGER NOT NULL, rate_down INTEGER NOT NULL, net_rx INTEGER NOT NULL, net_tx INTEGER NOT NULL,
+	  conns INTEGER NOT NULL, PRIMARY KEY(node_id, ts)) WITHOUT ROWID`,
 }
 
 func migrate(db *sql.DB) error {

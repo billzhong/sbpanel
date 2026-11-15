@@ -27,6 +27,10 @@ export const D = dict({
   clear: 'Clear',
   noInboundsYet: 'No inbounds yet',
   stopped: ' (disabled)',
+  showAll: (n: number) => `Show all ${n}`,
+  collapse: 'Collapse',
+  partOf: (a: number, b: number) => `${a} of this node's ${b} inbounds`,
+  allOf: 'All inbounds of this node',
 }, {
   deleted: '分组已删除',
   title: '分组',
@@ -53,4 +57,8 @@ export const D = dict({
   clear: '清空',
   noInboundsYet: '还没有入站',
   stopped: '（停用）',
+  showAll: (n) => `展开全部 ${n} 个`,
+  collapse: '收起',
+  partOf: (a, b) => `包含该节点 ${b} 个入站中的 ${a} 个`,
+  allOf: '包含该节点的全部入站',
 })

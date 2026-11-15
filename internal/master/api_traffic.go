@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"golang.org/x/net/publicsuffix"
+
+	"sbpanel/internal/pb"
 )
 
 type seriesOut struct {
@@ -412,6 +414,7 @@ func (m *Master) apiOverview(w http.ResponseWriter, r *http.Request) {
 		NodesTotal  int           `json:"nodes_total"`
 		NodesOnline int           `json:"nodes_online"`
 		Nodes       []nodeOut     `json:"nodes"`
+		Master      *pb.ProcInfo  `json:"master"` // the sbmaster process itself
 		TopUsers    []topRow      `json:"top_users"`
 		TopDomains  []topRow      `json:"top_domains"`
 		TopOutbound []topRow      `json:"top_outbounds"`
@@ -425,6 +428,7 @@ func (m *Master) apiOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	o.Nodes, o.NodesTotal = nodes, len(nodes)
+	o.Master = m.metrics.last.Load()
 	for _, n := range nodes {
 		if n.Online {
 			o.NodesOnline++

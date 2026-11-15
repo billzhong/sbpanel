@@ -119,6 +119,18 @@ message Heartbeat {
   int64 rate_up = 5;    // bytes/s through the core
   int64 rate_down = 6;
   string apply_error = 7;
+  ProcInfo proc = 8;     // the sbnode process itself (absent from older nodes)
+}
+
+// ProcInfo is one process's own footprint (the node agent with its embedded sing-box,
+// or the master).
+message ProcInfo {
+  double cpu_pct = 1;    // share of the whole machine (all cores = 100)
+  uint64 rss = 2;        // resident memory, bytes
+  uint64 heap = 3;       // Go heap in use, bytes
+  uint32 goroutines = 4;
+  uint32 threads = 5;
+  int64 started = 6;     // unix seconds
 }
 
 message ApplyResult {

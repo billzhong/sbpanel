@@ -43,12 +43,26 @@ export type SysInfo = {
   net_rx?: number; net_tx?: number; disk_used?: number; disk_total?: number
 }
 
+/** One process's own footprint; cpu_pct is a share of the whole machine (all cores = 100). */
+export type ProcInfo = { cpu_pct?: number; rss?: number; heap?: number; goroutines?: number; threads?: number; started?: number }
+
+export type NodeMetricPoint = {
+  ts: number; cpu: number; mem_used: number; mem_total: number; proc_cpu: number | null; proc_rss: number | null
+  rate_up: number; rate_down: number; nic_rx: number; nic_tx: number; conns: number
+}
+export type NodeMetrics = {
+  from: number; to: number; step: number; points: NodeMetricPoint[]
+  traffic: [number, number, number][]; master?: { ts: number; cpu: number; rss: number }[]
+}
+
 export type Node = {
   id: string; name: string; address: string; online: boolean; enrolled: boolean
   revision: number; applied_revision: number; apply_error: string; last_seen: number; cert_expire: number
   info: { version?: string; singbox?: string; hostname?: string; os?: string; arch?: string }
   public_address: string; region?: string; template_id: number
   traffic_limit: number; reset_day: number; inbounds: number; sys?: SysInfo
+  /** the sbnode process; master: the sbmaster process when the panel runs on this machine */
+  proc?: ProcInfo; master?: ProcInfo
   rate_up: number; rate_down: number; active_conns: number; spool_backlog: number; online_users: number
   month_up: number; month_down: number; today_up: number; today_down: number
 }
@@ -127,6 +141,8 @@ export type Overview = {
   rate_up: number; rate_down: number; active_conns: number
   users: number; active_users: number; online_users: number; online_ips: number
   nodes_total: number; nodes_online: number; nodes: Node[]
+  /** the sbmaster process itself */
+  master?: ProcInfo | null
   top_users: TopRow[]; top_domains: TopRow[]; top_outbounds: TopRow[]
 }
 

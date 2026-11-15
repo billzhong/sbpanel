@@ -403,6 +403,7 @@ func (h *Hub) handle(s *session, msg *pb.NodeMsg) {
 		s.hb = m.Heartbeat
 		s.lastHB = time.Now()
 		s.mu.Unlock()
+		h.m.recordHeartbeat(s.nodeID, m.Heartbeat)
 		db.Exec(`UPDATE nodes SET last_seen=?, applied_revision=?, apply_error=? WHERE id=?`,
 			now(), m.Heartbeat.AppliedRevision, m.Heartbeat.ApplyError, s.nodeID)
 	case *pb.NodeMsg_Apply:

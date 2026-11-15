@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type Node, type Enroll, type Template } from '../lib/api'
 import { bytes, parseSize, dateTime } from '../lib/fmt'
-import { useRoute, go, replace } from '../lib/router'
+import { useRoute, go, replace, withParams } from '../lib/router'
 import { useAction } from '../lib/actions'
 import { ActionMenu, Button, Callout, Card, Confirm, CopyText, Empty, Field, ModalDialog, PageHeader, Presence, Segmented, Select, Skeleton, cx, useSticky } from '../ui/kit'
 import { IconCheck, IconPlus } from '../ui/icons'
 import { NodeCard } from './Overview'
+import { NodeDrawer } from './NodeDetail'
 import { HealthDot, ProbeDrawer, useProbeResults, useRunProbe } from '../ui/probe'
 import { tr } from '../i18n'
 import { C } from '../i18n/common'
@@ -39,6 +40,25 @@ export function NodesPage() {
     success: T().deleted, invalidate: [['nodes'], ['inbounds'], ['overview']],
   })
 
+  const openId = params.get('id') ?? ''
+  const openNode = nodes.data?.find((n) => n.id === openId)
+  // a deleted (or mistyped) node closes the drawer instead of loading forever
+  useEffect(() => { if (openId && nodes.data && !openNode) replace('nodes', withParams(params, { id: undefined })) }, [openId, nodes.data, openNode, params])
+  const menu = (n: Node) => (
+    <ActionMenu label={T().nodeActions} onAction={(k) => {
+      if (k === 'probe') testNode(n)
+      if (k === 'edit') setEditing(n)
+      if (k === 'token') token.mutate(n)
+      if (k === 'spec') setSpecOf(n)
+      if (k === 'inbound') go('inbounds', { new: 1, node: n.id })
+      if (k === 'delete') setDeleting(n)
+    }} items={[
+      { id: 'probe', label: T().testConn, isDisabled: n.inbounds === 0 }, { id: 'edit', label: tr(C).edit }, { id: 'inbound', label: T().createInbound },
+      { id: 'token', label: n.enrolled ? T().reenroll : T().enrollCmd }, { id: 'spec', label: T().viewSpec }, 'sep',
+      { id: 'delete', label: T().delete, danger: true },
+    ]} />
+  )
+
   return (
     <>
       <PageHeader title={T().title} subtitle={T().subtitle}
@@ -53,22 +73,13 @@ export function NodesPage() {
           <NodeCard key={n.id} n={n} actions={<div className="flex shrink-0 items-center gap-0.5">
             {n.inbounds > 0 && <HealthDot results={probeOf(n.id)} running={runProbe.isPending && runProbe.variables?.node_id === n.id}
               onPress={() => probeOf(n.id).length ? setProbeNode(n) : testNode(n)} />}
-            <ActionMenu label={T().nodeActions} onAction={(k) => {
-              if (k === 'probe') testNode(n)
-              if (k === 'edit') setEditing(n)
-              if (k === 'token') token.mutate(n)
-              if (k === 'spec') setSpecOf(n)
-              if (k === 'inbound') go('inbounds', { new: 1, node: n.id })
-              if (k === 'delete') setDeleting(n)
-            }} items={[
-              { id: 'probe', label: T().testConn, isDisabled: n.inbounds === 0 }, { id: 'edit', label: tr(C).edit }, { id: 'inbound', label: T().createInbound },
-              { id: 'token', label: n.enrolled ? T().reenroll : T().enrollCmd }, { id: 'spec', label: T().viewSpec }, 'sep',
-              { id: 'delete', label: T().delete, danger: true },
-            ]} />
+            {menu(n)}
           </div>} />
         ))}
       </div>
 
+      <NodeDrawer isOpen={!!openId} n={openNode} ids={(nodes.data ?? []).map((n) => n.id)} menu={openNode && menu(openNode)}
+        onNav={(id) => replace('nodes', withParams(params, { id }))} onClose={() => go('nodes', withParams(params, { id: undefined }))} />
       <ProbeDrawer isOpen={!!probeNode} onClose={() => setProbeNode(null)} title={T().probeTitle(probeSticky?.name ?? '')}
         results={probeSticky ? probeOf(probeSticky.id) : []} running={runProbe.isPending} onRetry={() => probeSticky && runProbe.mutate({ node_id: probeSticky.id })} />
       <Presence value={wizard}>

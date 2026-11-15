@@ -80,6 +80,7 @@ type Master struct {
 	box      *secretBox // encrypts DNS tokens and private keys at rest
 	certs    *certManager
 	probes   *prober
+	metrics  *masterMetrics
 }
 
 func New(cfg Config) (*Master, error) {
@@ -97,6 +98,7 @@ func New(cfg Config) (*Master, error) {
 	}
 	m := &Master{cfg: cfg, db: db, log: log.New(os.Stderr, "[master] ", log.LstdFlags), loc: loc, quit: make(chan struct{})}
 	m.hub = newHub(m)
+	m.metrics = newMasterMetrics()
 	eventHook = m.onEvent
 	if err := m.initSecrets(); err != nil {
 		return nil, err
@@ -180,6 +182,7 @@ func (m *Master) Run(ctx context.Context) error {
 	m.log.Printf("grpc on %s, web on http://%s, CA sha256 %s", gl.Addr(), wl.Addr(), m.CAFingerprint())
 	stop := make(chan struct{})
 	go m.policyLoop(stop)
+	go m.metricsLoop(stop)
 	go m.certs.loop(stop)
 	go m.probes.loop(stop)
 	srv := &http.Server{Handler: m.routes(), ReadHeaderTimeout: 10 * time.Second}

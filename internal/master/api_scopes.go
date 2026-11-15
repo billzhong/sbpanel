@@ -53,6 +53,7 @@ var routeScopes = map[string]string{
 	"POST /api/nodes/{id}/token":       ScopeNodesWrite,
 	"GET /api/nodes/{id}/spec":         ScopeRead,
 	"GET /api/nodes/{id}/conns":        ScopeRead,
+	"GET /api/nodes/{id}/metrics":      ScopeRead,
 	"POST /api/nodes/{id}/conns/close": ScopeUsersWrite, // like kick: drops live user connections
 
 	// inbounds

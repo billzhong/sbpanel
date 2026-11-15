@@ -40,6 +40,8 @@ type nodeOut struct {
 	ResetDay        int64           `json:"reset_day"`
 	Inbounds        int64           `json:"inbounds"`
 	Sys             *pb.SysInfo     `json:"sys,omitempty"`
+	Proc            *pb.ProcInfo    `json:"proc,omitempty"`   // the sbnode process
+	Master          *pb.ProcInfo    `json:"master,omitempty"` // the sbmaster process, when the panel runs on this machine
 	RateUp          int64           `json:"rate_up"`
 	RateDown        int64           `json:"rate_down"`
 	ActiveConns     int64           `json:"active_conns"`
@@ -91,6 +93,10 @@ func (m *Master) listNodes() ([]nodeOut, error) {
 			n.Online = time.Since(last) < 35*time.Second || time.Since(s.connectedAt) < 35*time.Second
 			if hb != nil {
 				n.Sys, n.RateUp, n.RateDown, n.ActiveConns, n.SpoolBacklog = hb.Sys, hb.RateUp, hb.RateDown, hb.ActiveConns, hb.SpoolBacklog
+				n.Proc = hb.Proc
+			}
+			if m.hostsMaster(s) {
+				n.Master = m.metrics.last.Load()
 			}
 			n.OnlineUsers = len(online)
 		}
