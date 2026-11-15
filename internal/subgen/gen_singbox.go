@@ -51,7 +51,7 @@ func singboxSections(c *Compiled) map[string]string {
 		}
 	}
 	for _, e := range c.Nodes {
-		outs = append(outs, e.SingboxOutbound())
+		outs = append(outs, e.SingboxConfigOutbound())
 	}
 	outs = append(outs, map[string]any{"type": "direct", "tag": "direct"})
 

@@ -43,6 +43,7 @@ type subEntry struct {
 	Region     string // ISO code of where traffic exits ("" = unknown)
 	Inbound    int64  // panel inbound id (usage and limits)
 	Line       string // "<node> <REGION> · <inbound>" before host remarks
+	IPPrefer   string // "ipv6" / "ipv4": which family the client should try first for a hostname Address
 }
 
 type subUser struct {
@@ -177,11 +178,11 @@ type hostRow struct {
 // subEntries lists every endpoint the user may use, in node/inbound/host order.
 // A negative user ID lists every enabled inbound (admin previews).
 func (m *Master) subEntries(u subUser) ([]subEntry, error) {
-	q := `SELECT DISTINCT i.id, i.type, i.tag, i.remark, i.options_json, i.client_json, n.name, n.public_address, n.address, n.created_at, i.sort, i.port
+	q := `SELECT DISTINCT i.id, i.type, i.tag, i.remark, i.options_json, i.client_json, n.name, n.public_address, n.address, n.client_ip, n.created_at, i.sort, i.port
 		FROM inbounds i JOIN nodes n ON n.id=i.node_id JOIN group_inbounds gi ON gi.inbound_id=i.id JOIN user_groups ug ON ug.group_id=gi.group_id
 		WHERE ug.user_id=? AND i.enabled=1 ORDER BY n.created_at, i.sort, i.port`
 	if u.ID < 0 {
-		q = `SELECT i.id, i.type, i.tag, i.remark, i.options_json, i.client_json, n.name, n.public_address, n.address, n.created_at, i.sort, i.port
+		q = `SELECT i.id, i.type, i.tag, i.remark, i.options_json, i.client_json, n.name, n.public_address, n.address, n.client_ip, n.created_at, i.sort, i.port
 		FROM inbounds i JOIN nodes n ON n.id=i.node_id WHERE i.enabled=1 AND ?<0 ORDER BY n.created_at, i.sort, i.port`
 	}
 	rows, err := m.db.Query(q, u.ID)
@@ -192,7 +193,7 @@ func (m *Master) subEntries(u subUser) ([]subEntry, error) {
 	for rows.Next() {
 		var x subInbound
 		var created, srt, port int64
-		rows.Scan(&x.id, &x.typ, &x.tag, &x.remark, &x.opts, &x.client, &x.node, &x.pub, &x.addr, &created, &srt, &port)
+		rows.Scan(&x.id, &x.typ, &x.tag, &x.remark, &x.opts, &x.client, &x.node, &x.pub, &x.addr, &x.ipPrefer, &created, &srt, &port)
 		ins = append(ins, x)
 	}
 	rows.Close()
@@ -224,6 +225,7 @@ func (m *Master) subEntries(u subUser) ([]subEntry, error) {
 type subInbound struct {
 	id                                              int64
 	typ, tag, remark, opts, client, node, pub, addr string
+	ipPrefer                                        string
 }
 
 // expandInbound turns an inbound into its client endpoints (one per enabled host,
@@ -249,6 +251,7 @@ func (m *Master) expandInbound(in subInbound, uuid, password string) ([]subEntry
 		addr = in.addr
 	}
 	base.Address = addr
+	base.IPPrefer = in.ipPrefer
 	label := in.remark
 	if label == "" {
 		label = in.tag
@@ -421,7 +424,6 @@ func (e subEntry) uri() string {
 // ---------- sing-box ----------
 
 // singboxOutbound and mihomoProxy live in subgen so the routing generators share them.
-func (e subEntry) singboxOutbound() map[string]any { return subgen.Endpoint(e).SingboxOutbound() }
 
 func singboxConfig(es []subEntry) []byte {
 	tags := make([]string, 0, len(es))
@@ -437,7 +439,7 @@ func singboxConfig(es []subEntry) []byte {
 		map[string]any{"type": "urltest", "tag": "auto", "outbounds": tags, "url": "https://www.gstatic.com/generate_204", "interval": "3m"},
 	)
 	for _, e := range es {
-		outs = append(outs, e.singboxOutbound())
+		outs = append(outs, subgen.Endpoint(e).SingboxConfigOutbound())
 	}
 	outs = append(outs, map[string]any{"type": "direct", "tag": "direct"})
 	cfg := map[string]any{

@@ -190,6 +190,7 @@ var zhCatalog = map[string]string{
 	"Node name is required":                                   "节点名称不能为空",
 	"reset_day must be 1-28":                                  "重置日必须在 1–28 之间",
 	"traffic_mode must be both, out, in or max":               "计费方式必须是 both、out、in 或 max",
+	"client_ip must be empty, ipv6 or ipv4":                   "客户端优先必须为空、ipv6 或 ipv4",
 	"traffic_used must be >= 0":                               "已用流量不能为负",
 	"Node not found":                                          "节点不存在",
 	"Node offline":                                            "节点离线",

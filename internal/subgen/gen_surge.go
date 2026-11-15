@@ -71,6 +71,12 @@ func (e Endpoint) surgeProxy() string {
 		add("alpn", or(strings.Join(e.ALPN, ","), "h3"))
 		tls()
 	}
+	switch e.ipStrategy() {
+	case "prefer_ipv6":
+		add("ip-version", "prefer-v6")
+	case "prefer_ipv4":
+		add("ip-version", "prefer-v4")
+	}
 	s := e.Remark + " = " + head
 	if len(kv) > 0 {
 		s += ", " + strings.Join(kv, ", ")

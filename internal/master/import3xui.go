@@ -460,8 +460,8 @@ func (m *Master) import3XUI(nodeID string, ins []XUIInbound, dryRun, usersOnly b
 				rep.Warnings = append(rep.Warnings, fmt.Sprintf("%s 的 subId 与已有用户冲突，已生成新订阅链接", c.Email))
 			}
 			res, err := tx.Exec(`INSERT INTO users(username, sub_token, uuid, password, traffic_limit, expire_at, device_limit, enabled, note,
-				used_up, used_down, life_up, life_down, xui_up, xui_down, last_reset_at, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				name, token, uid, pw, c.TotalGB, exp, c.LimitIP, u.enabled, nz(c.Comment, "从 3x-ui 导入"), u.up, u.down, u.up, u.down, u.up, u.down, now(), now())
+				used_up, used_down, life_up, life_down, xui_up, xui_down, last_reset_at, created_at, reset_strategy) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				name, token, uid, pw, c.TotalGB, exp, c.LimitIP, u.enabled, nz(c.Comment, "从 3x-ui 导入"), u.up, u.down, u.up, u.down, u.up, u.down, now(), now(), defaultReset)
 			if err != nil {
 				return nil, fmt.Errorf("user %s: %w", name, err)
 			}

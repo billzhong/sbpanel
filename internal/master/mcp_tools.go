@@ -189,7 +189,7 @@ func init() {
 				"expire_days":    prop{"type": "number", "description": "从现在起多少天后到期 / days from now until expiry", "minimum": 0.0},
 				"expire_at":      pTime("到期时间（与 expire_days 二选一）/ absolute expiry"),
 				"groups":         prop{"type": "array", "items": prop{"type": []string{"string", "integer"}}, "description": "分组名或 id，不填用默认分组 / group names or ids (default groups if omitted)"},
-				"reset_strategy": pEnum("用量重置周期，默认 none / usage reset cycle", resetEnum...),
+				"reset_strategy": pEnum("用量重置周期，默认 month_rolling（按创建日每月重置）/ usage reset cycle, default month_rolling (monthly on the creation day)", resetEnum...),
 				"device_limit":   pInt("同时在线设备（IP）数，0 不限 / max concurrent IPs, 0 = unlimited", 0, 0),
 				"note":           pStr("备注 / note"),
 			}),

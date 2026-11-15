@@ -1,5 +1,10 @@
 package subgen
 
+import (
+	"net"
+	"strings"
+)
+
 // Copied from sbpanel internal/master/sub.go (singboxOutbound, mihomoProxy).
 func (e Endpoint) SingboxOutbound() map[string]any {
 	o := map[string]any{"type": e.Type, "tag": e.Remark, "server": e.Address, "server_port": e.Port}
@@ -75,6 +80,31 @@ func (e Endpoint) SingboxOutbound() map[string]any {
 		o["tls"] = tls()
 	}
 	return o
+}
+
+// SingboxConfigOutbound is SingboxOutbound for a complete generated config: it may name
+// the config's "local" DNS server to pick the address family for the server's hostname.
+// (A bare outbound can't: other configs need not have that server.)
+func (e Endpoint) SingboxConfigOutbound() map[string]any {
+	o := e.SingboxOutbound()
+	if st := e.ipStrategy(); st != "" {
+		o["domain_resolver"] = map[string]any{"server": "local", "strategy": st}
+	}
+	return o
+}
+
+// ipStrategy is the sing-box strategy for reaching a hostname Address ("" = client default).
+func (e Endpoint) ipStrategy() string {
+	if net.ParseIP(strings.Trim(e.Address, "[]")) != nil {
+		return ""
+	}
+	switch e.IPPrefer {
+	case "ipv6":
+		return "prefer_ipv6"
+	case "ipv4":
+		return "prefer_ipv4"
+	}
+	return ""
 }
 
 func (e Endpoint) MihomoProxy() map[string]any {
@@ -173,6 +203,12 @@ func (e Endpoint) MihomoProxy() map[string]any {
 			delete(p, "servername")
 			p["sni"] = s
 		}
+	}
+	switch e.ipStrategy() {
+	case "prefer_ipv6":
+		p["ip-version"] = "ipv6-prefer"
+	case "prefer_ipv4":
+		p["ip-version"] = "ipv4-prefer"
 	}
 	return p
 }

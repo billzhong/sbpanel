@@ -20,6 +20,10 @@ import (
 
 // ---------- usage reset cycles ----------
 
+// defaultReset is the usage cycle of users created without one: monthly, on the day
+// they were created.
+const defaultReset = "month_rolling"
+
 // periodStart is the beginning of the current billing period for a strategy.
 func periodStart(strategy string, created, t time.Time, loc *time.Location) (time.Time, bool) {
 	t = t.In(loc)

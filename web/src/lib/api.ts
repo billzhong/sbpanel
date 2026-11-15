@@ -69,6 +69,8 @@ export type Node = {
   traffic_limit: number; reset_day: number; inbounds: number; sys?: SysInfo
   /** what traffic_limit is compared with; server: the machine's metered uplink this billing period */
   traffic_mode: TrafficMode; server?: ServerUsage
+  /** address family clients try first for the node's hostname; '' = client default */
+  client_ip: '' | 'ipv6' | 'ipv4'
   /** the sbnode process; master: the sbmaster process when the panel runs on this machine */
   proc?: ProcInfo; master?: ProcInfo
   rate_up: number; rate_down: number; active_conns: number; spool_backlog: number; online_users: number

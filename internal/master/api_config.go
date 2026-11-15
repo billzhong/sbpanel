@@ -660,7 +660,7 @@ func (m *Master) apiBulkUsers(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < req.Count; i++ {
 		name := fmt.Sprintf("%s%0*d", req.Prefix, width, req.Start+i)
 		res, err := tx.Exec(`INSERT INTO users(username, sub_token, uuid, password, traffic_limit, expire_at, reset_strategy, last_reset_at, created_at)
-			VALUES(?,?,?,?,?,?,?,?,?)`, name, randHex(12), uuid.NewString(), randHex(12), req.TrafficLimit, exp, nz(req.ResetStrategy, "none"), now(), now())
+			VALUES(?,?,?,?,?,?,?,?,?)`, name, randHex(12), uuid.NewString(), randHex(12), req.TrafficLimit, exp, nz(req.ResetStrategy, defaultReset), now(), now())
 		if err != nil {
 			writeErrf(w, 400, "Username conflict: %s", name)
 			return

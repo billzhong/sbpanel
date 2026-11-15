@@ -244,6 +244,7 @@ function EditNode({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen
   const [day, setDay] = useState(String(n.reset_day || 1))
   const [mode, setMode] = useState<TrafficMode>(n.traffic_mode || 'both')
   const [used, setUsed] = useState('')
+  const [cip, setCip] = useState<string>(n.client_ip || 'auto')
   const save = useAction({
     fn: () => {
       const l = limit.trim() ? parseSize(limit) : 0
@@ -252,7 +253,7 @@ function EditNode({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen
       if (Number.isNaN(u)) throw new Error(T().badUsed)
       const rd = Math.min(28, Math.max(1, Number(day) || 1))
       // the correction applies to the period of the reset day being saved, so it goes in a second request
-      return api(`/nodes/${n.id}`, { method: 'PATCH', body: { name, public_address: pub, region: region.trim().toUpperCase(), template_id: Number(tpl), traffic_limit: l, reset_day: rd, traffic_mode: mode } })
+      return api(`/nodes/${n.id}`, { method: 'PATCH', body: { name, public_address: pub, region: region.trim().toUpperCase(), template_id: Number(tpl), traffic_limit: l, reset_day: rd, traffic_mode: mode, client_ip: cip === 'auto' ? '' : cip } })
         .then(() => u !== undefined ? api(`/nodes/${n.id}`, { method: 'PATCH', body: { traffic_used: u } }) : undefined)
     },
     apply: Number(tpl) !== n.template_id, success: T().savedX(name), invalidate: [['nodes'], ['templates']], onSuccess: onClose,
@@ -269,6 +270,8 @@ function EditNode({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen
           <Field label={T().pubAddrShort} value={pub} onChange={setPub} placeholder={n.address || T().pubPh2} description={T().pubHint2} />
           <Field label={T().region} value={region} onChange={(v) => setRegion(v.toUpperCase().slice(0, 2))} placeholder="US" description={T().regionHint} />
         </div>
+        <Select label={T().clientIp} value={cip} onChange={setCip} description={T().clientIpHint}
+          options={['auto', 'ipv6', 'ipv4'].map((id) => ({ id, label: T().clientIpOpts(id) }))} />
         <div className="grid grid-cols-2 gap-4">
           <Field label={T().limit} value={limit} onChange={setLimit} placeholder={T().unlimited} description={n.traffic_limit ? T().current(bytes(n.traffic_limit)) : T().limitHint} />
           <Field label={T().resetDay} value={day} onChange={setDay} description="1–28" />

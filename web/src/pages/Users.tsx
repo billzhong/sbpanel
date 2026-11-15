@@ -507,9 +507,9 @@ const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 const inDays = (n: number) => ymd(new Date(Date.now() + n * DAY * 1000))
 
 const presets = [
-  { id: 'trial', get label() { return tr(D).pTrial }, get hint() { return tr(D).pTrialHint }, limit: '10', unit: 'GB', days: 7, reset: 'none' },
-  { id: 'std', get label() { return tr(D).pStd }, get hint() { return tr(D).pStdHint }, limit: '100', unit: 'GB', days: 30, reset: 'month' },
-  { id: 'free', get label() { return tr(D).pFree }, get hint() { return tr(D).pFreeHint }, limit: '', unit: 'GB', days: 0, reset: 'none' },
+  { id: 'trial', get label() { return tr(D).pTrial }, get hint() { return tr(D).pTrialHint }, limit: '10', unit: 'GB', days: 7, reset: 'month_rolling' },
+  { id: 'std', get label() { return tr(D).pStd }, get hint() { return tr(D).pStdHint }, limit: '100', unit: 'GB', days: 30, reset: 'month_rolling' },
+  { id: 'free', get label() { return tr(D).pFree }, get hint() { return tr(D).pFreeHint }, limit: '', unit: 'GB', days: 0, reset: 'month_rolling' },
 ] as const
 
 type FormState = { username: string; limit: string; unit: 'GB' | 'TB'; exp: string; reset: string; devices: string; up: string; down: string; note: string; gids: number[]; profile: string; lims: { id: number; size: string }[] }
@@ -523,7 +523,7 @@ function UserForm({ u, groups, users, isOpen, onClose, onOpen }: { u?: User; gro
     const tb = (u?.traffic_limit ?? 0) >= 1024 * GB && (u!.traffic_limit / (1024 * GB)) % 1 === 0
     return {
       username: u?.username ?? '', limit: tb ? String(u!.traffic_limit / (1024 * GB)) : gb(u?.traffic_limit ?? 0), unit: tb ? 'TB' : 'GB',
-      exp: u?.expire_at ? ymd(new Date(u.expire_at * 1000)) : '', reset: u?.reset_strategy || 'none',
+      exp: u?.expire_at ? ymd(new Date(u.expire_at * 1000)) : '', reset: u ? (u.reset_strategy || 'none') : 'month_rolling',
       devices: u?.device_limit ? String(u.device_limit) : '', up: toMbps(u?.speed_up ?? 0), down: toMbps(u?.speed_down ?? 0),
       note: u?.note ?? '', gids: u?.group_ids ?? groups.filter((g) => g.is_default).map((g) => g.id), profile: String(u?.sub_profile_id ?? 0),
       lims: (u?.limits ?? []).map((l) => ({ id: l.id, size: l.traffic_limit ? String(+(l.traffic_limit / GB).toFixed(2)) : '' })),
@@ -676,7 +676,7 @@ function BulkCreate({ groups, isOpen, onClose }: { groups: Group[]; isOpen: bool
   const [start, setStart] = useState('1')
   const [limit, setLimit] = useState('')
   const [days, setDays] = useState('')
-  const [reset, setReset] = useState('month')
+  const [reset, setReset] = useState('month_rolling')
   const [gids, setGids] = useState<number[]>(groups.filter((g) => g.is_default).map((g) => g.id))
   const [done, setDone] = useState<User[] | null>(null)
   const n = Number(count) || 0

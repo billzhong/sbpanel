@@ -38,6 +38,7 @@ type nodeOut struct {
 	Info            json.RawMessage `json:"info"`
 	TrafficLimit    int64           `json:"traffic_limit"`
 	ResetDay        int64           `json:"reset_day"`
+	ClientIP        string          `json:"client_ip"`    // "", "ipv6", "ipv4": family clients try first for the node's hostname
 	TrafficMode     string          `json:"traffic_mode"` // what traffic_limit is compared with: both, out, in, max
 	Server          serverUsage     `json:"server"`       // the machine's metered uplink traffic this period
 	Inbounds        int64           `json:"inbounds"`
@@ -74,12 +75,12 @@ func (m *Master) monthStart(t time.Time, resetDay int) int64 {
 
 func (m *Master) listNodes() ([]nodeOut, error) {
 	out, err := scanRows(m, `SELECT id, name, address, public_address, region, template_id, cert_serial<>'', revision, applied_revision, apply_error, last_seen,
-		cert_expire, info_json, traffic_limit, reset_day, traffic_mode, (SELECT COUNT(*) FROM inbounds i WHERE i.node_id=nodes.id)
+		cert_expire, info_json, traffic_limit, reset_day, traffic_mode, client_ip, (SELECT COUNT(*) FROM inbounds i WHERE i.node_id=nodes.id)
 		FROM nodes ORDER BY created_at`, nil, func(s func(...any) error) (nodeOut, error) {
 		var n nodeOut
 		var info string
 		err := s(&n.ID, &n.Name, &n.Address, &n.PublicAddress, &n.Region, &n.TemplateID, &n.Enrolled, &n.Revision, &n.AppliedRevision, &n.ApplyError, &n.LastSeen,
-			&n.CertExpire, &info, &n.TrafficLimit, &n.ResetDay, &n.TrafficMode, &n.Inbounds)
+			&n.CertExpire, &info, &n.TrafficLimit, &n.ResetDay, &n.TrafficMode, &n.ClientIP, &n.Inbounds)
 		n.Info = json.RawMessage(info)
 		return n, err
 	})
@@ -190,6 +191,7 @@ func (m *Master) apiUpdateNode(w http.ResponseWriter, r *http.Request) {
 		TrafficLimit  *int64           `json:"traffic_limit"`
 		ResetDay      *int64           `json:"reset_day"`
 		TrafficMode   *string          `json:"traffic_mode"`
+		ClientIP      *string          `json:"client_ip"`
 		TrafficUsed   *int64           `json:"traffic_used"` // set this period's server traffic to the provider's figure
 	}
 	if err := readJSON(r, &req); err != nil {
@@ -240,6 +242,13 @@ func (m *Master) apiUpdateNode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		m.db.Exec(`UPDATE nodes SET traffic_mode=? WHERE id=?`, *req.TrafficMode, id)
+	}
+	if req.ClientIP != nil {
+		if v := *req.ClientIP; v != "" && v != "ipv6" && v != "ipv4" {
+			writeErr(w, 400, "client_ip must be empty, ipv6 or ipv4")
+			return
+		}
+		m.db.Exec(`UPDATE nodes SET client_ip=? WHERE id=?`, *req.ClientIP, id)
 	}
 	if req.TrafficUsed != nil {
 		if err := m.setServerUsed(id, *req.TrafficUsed); err != nil {
@@ -741,7 +750,7 @@ func (m *Master) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	if req.ExpireAt != nil {
 		exp = *req.ExpireAt
 	}
-	strategy, note := "none", ""
+	strategy, note := defaultReset, ""
 	if req.ResetStrategy != nil {
 		strategy = *req.ResetStrategy
 	}
@@ -750,7 +759,7 @@ func (m *Master) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := m.db.Exec(`INSERT INTO users(username, sub_token, uuid, password, traffic_limit, expire_at, reset_strategy, note, last_reset_at, created_at,
 		device_limit, speed_up, speed_down) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, *req.Username, randHex(12), uuid.NewString(), randHex(12), limit, exp,
-		nz(strategy, "none"), note, now(), now(), ptrOr(req.DeviceLimit, 0), ptrOr(req.SpeedUp, 0), ptrOr(req.SpeedDown, 0))
+		nz(strategy, defaultReset), note, now(), now(), ptrOr(req.DeviceLimit, 0), ptrOr(req.SpeedUp, 0), ptrOr(req.SpeedDown, 0))
 	if err != nil {
 		writeErr(w, 400, "Username already exists")
 		return

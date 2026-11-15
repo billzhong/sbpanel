@@ -124,6 +124,7 @@ type Endpoint struct {
 	Region     string // ISO code of where traffic exits ("" = unknown)
 	Inbound    int64  // panel inbound id (usage and limits)
 	Line       string // "<node> <REGION> · <inbound>" before host remarks
+	IPPrefer   string // "ipv6" / "ipv4": which family the client should try first for a hostname Address
 }
 
 // Meta is per-request context available to templates.

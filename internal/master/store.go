@@ -197,6 +197,8 @@ var migrations = []string{
 	ALTER TABLE nodes ADD COLUMN wan_boot INTEGER NOT NULL DEFAULT 0;
 	CREATE TABLE node_usage(node_id TEXT NOT NULL, period INTEGER NOT NULL, rx INTEGER NOT NULL DEFAULT 0, tx INTEGER NOT NULL DEFAULT 0,
 	  adj INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(node_id, period)) WITHOUT ROWID`,
+	// v14: which address family clients try first for the node's hostname (subscriptions)
+	`ALTER TABLE nodes ADD COLUMN client_ip TEXT NOT NULL DEFAULT ''`,
 }
 
 func migrate(db *sql.DB) error {
