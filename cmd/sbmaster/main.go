@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	_ "time/tzdata"
 
@@ -94,19 +96,34 @@ func import3xui(args []string) {
 	fmt.Println(string(out))
 }
 
-// sbmaster reset-admin --data DIR --password NEW (also clears 2FA)
+// sbmaster reset-admin --data DIR [--user NAME] [--rename OLD] --password NEW|- (also clears 2FA)
+// --password - reads the password from stdin, keeping it off the command line.
 func resetAdmin(args []string) {
 	fs := flag.NewFlagSet("reset-admin", flag.ExitOnError)
 	data := fs.String("data", env("SBM_DATA", "/var/lib/sbmaster"), "sbmaster data directory")
 	user := fs.String("user", "admin", "admin username")
-	pw := fs.String("password", "", "new password (min 8 chars)")
+	pw := fs.String("password", "", "new password (min 8 chars); - reads it from stdin")
+	rename := fs.String("rename", "", "rename this existing admin to --user first")
 	fs.Parse(args)
+	if *pw == "-" {
+		b, err := io.ReadAll(io.LimitReader(os.Stdin, 4096))
+		if err != nil {
+			log.Fatal(err)
+		}
+		*pw = strings.TrimRight(string(b), "\r\n")
+	}
 	if len(*pw) < 8 {
 		log.Fatal("--password must be at least 8 characters")
 	}
 	m, err := master.New(master.Config{DataDir: *data})
 	if err != nil {
 		log.Fatal(err)
+	}
+	if *rename != "" && *rename != *user {
+		if err := m.RenameAdmin(*rename, *user); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("renamed admin %s -> %s\n", *rename, *user)
 	}
 	if err := m.ResetAdmin(*user, *pw); err != nil {
 		log.Fatal(err)

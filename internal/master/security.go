@@ -173,6 +173,18 @@ func (m *Master) apiAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 // ResetAdmin sets a new password (creating the admin if needed) and clears 2FA.
+// RenameAdmin changes an admin's username (keeps password and 2FA).
+func (m *Master) RenameAdmin(from, to string) error {
+	res, err := m.db.Exec(`UPDATE admins SET username=? WHERE username=?`, to, from)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("no admin named %q", from)
+	}
+	return nil
+}
+
 func (m *Master) ResetAdmin(user, password string) error {
 	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
