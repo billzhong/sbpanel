@@ -109,6 +109,10 @@ message SysInfo {
   uint64 net_tx = 7;
   uint64 disk_used = 8;
   uint64 disk_total = 9;
+  // Uplink interfaces only (those with a default route; no loopback, bridges or tunnels):
+  // what the provider bills. Bytes, cumulative since boot; absent from older nodes.
+  uint64 wan_rx = 10;
+  uint64 wan_tx = 11;
 }
 
 message Heartbeat {

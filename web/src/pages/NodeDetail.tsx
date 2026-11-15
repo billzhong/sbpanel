@@ -3,12 +3,12 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api, type Inbound, type Node, type NodeMetrics } from '../lib/api'
 import { href } from '../lib/router'
 import { ago, bytes, dateTime, duration, pct, rate } from '../lib/fmt'
-import { Badge, Card, Drawer, Empty, IconButton, Progress, Segmented, Skeleton, Tabs } from '../ui/kit'
+import { Badge, Card, Drawer, Empty, IconButton, Segmented, Skeleton, Tabs } from '../ui/kit'
 import { NodeRouting } from './NodeRoute'
 import { NR } from '../i18n/noderoute'
 import { TimeChart, type ChartSeries } from '../ui/charts'
 import { IconChevron } from '../ui/icons'
-import { nodeStatus, pctText, procParts, PROC_COLOR, UsageBar } from './Overview'
+import { NodeQuota, nodeStatus, pctText, procParts, PROC_COLOR, UsageBar } from './Overview'
 import { tr } from '../i18n'
 import { O } from '../i18n/overview'
 import { NM } from '../i18n/nodedetail'
@@ -181,7 +181,6 @@ function History({ id, range }: { id: string; range: Range }) {
 function Info({ n }: { n: Node }) {
   const m = tr(NM)
   const o = tr(O)
-  const month = n.month_up + n.month_down
   const rows: [string, ReactNode][] = [
     [m.address, <span className="font-mono">{n.address || '—'}</span>],
     [m.pubAddress, <span className="font-mono">{n.public_address || '—'}</span>],
@@ -206,11 +205,7 @@ function Info({ n }: { n: Node }) {
         ))}
       </dl>
       <div className="mt-4 border-t pt-3">
-        <div className="mb-1 flex justify-between text-xs text-subtle">
-          <span>{m.quota} · {n.traffic_limit > 0 ? m.resetDay(n.reset_day) : m.unlimited}</span>
-          <span className="tabular">{bytes(month)}{n.traffic_limit > 0 ? ` / ${bytes(n.traffic_limit, 0)}` : ''}</span>
-        </div>
-        <Progress value={n.traffic_limit > 0 ? pct(month, n.traffic_limit) : 0} />
+        <NodeQuota n={n} detail />
         <div className="mt-2 text-xs text-muted tabular">{o.todayX(bytes(n.today_down + n.today_up))}</div>
       </div>
     </Card>

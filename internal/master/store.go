@@ -190,6 +190,13 @@ var migrations = []string{
 	  conns INTEGER NOT NULL, PRIMARY KEY(node_id, ts)) WITHOUT ROWID`,
 	// v12: a node's own route rules, merged into its template's route (noderoute.go)
 	`CREATE TABLE node_routes(node_id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
+	// v13: the machine's own metered traffic per billing period (nodeusage.go)
+	`ALTER TABLE nodes ADD COLUMN traffic_mode TEXT NOT NULL DEFAULT 'both';
+	ALTER TABLE nodes ADD COLUMN wan_last_rx INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE nodes ADD COLUMN wan_last_tx INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE nodes ADD COLUMN wan_boot INTEGER NOT NULL DEFAULT 0;
+	CREATE TABLE node_usage(node_id TEXT NOT NULL, period INTEGER NOT NULL, rx INTEGER NOT NULL DEFAULT 0, tx INTEGER NOT NULL DEFAULT 0,
+	  adj INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(node_id, period)) WITHOUT ROWID`,
 }
 
 func migrate(db *sql.DB) error {

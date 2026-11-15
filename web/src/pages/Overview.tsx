@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { api, type Overview, type SeriesResp, type Node, type ProcInfo, type Template, type User } from '../lib/api'
+import { api, nodeUsed, type Overview, type SeriesResp, type Node, type ProcInfo, type Template, type User } from '../lib/api'
 import { filterDefs } from '../lib/users'
-import { bytes, rate, pct, duration, ago } from '../lib/fmt'
+import { bytes, rate, pct, duration, ago, date } from '../lib/fmt'
 import { go, href } from '../lib/router'
 import { Badge, Card, PageHeader, Progress, Skeleton, Stat, Empty, Button, cx } from '../ui/kit'
 import { TimeChart, ShareList, TweenBytes } from '../ui/charts'
@@ -206,11 +206,38 @@ export function procParts(n: Node) {
   }
 }
 
+/** The node's billing-period traffic against its cap: the machine's metered uplink (by the
+ * provider's counting) once the node reports it, with what users moved through it beside it. */
+export function NodeQuota({ n, detail }: { n: Node; detail?: boolean }) {
+  const t = tr(O)
+  const m = tr(NM)
+  const s = n.server
+  const used = nodeUsed(n)
+  const users = n.month_up + n.month_down
+  return (
+    <div>
+      <div className="mb-1 flex justify-between gap-2 text-xs text-subtle">
+        <span className="truncate" title={s?.tracked ? m.periodX(date(s.period_start), date(s.period_end - 1)) : m.notTracked}>
+          {s?.tracked ? `${m.server} · ${m.modes(n.traffic_mode)} · ${m.resetDay(n.reset_day)}` : t.monthReset(n.reset_day)}
+        </span>
+        <span className="shrink-0 tabular">{bytes(used)}{n.traffic_limit > 0 ? ` / ${bytes(n.traffic_limit, 0)}` : ''}</span>
+      </div>
+      <Progress value={n.traffic_limit > 0 ? pct(used, n.traffic_limit) : 0} />
+      {s?.tracked && (
+        <div className="mt-1.5 flex justify-between gap-2 text-xs text-muted tabular">
+          <span>{m.inOut(bytes(s.rx), bytes(s.tx))}{detail && s.adj !== 0 ? ` · ${m.corrected((s.adj > 0 ? '+' : '−') + bytes(Math.abs(s.adj)))}` : ''}</span>
+          <span>{m.userTraffic(bytes(users))}</span>
+        </div>
+      )}
+      {detail && s?.tracked && <div className="mt-1 text-xs text-muted tabular">{m.periodX(date(s.period_start), date(s.period_end - 1))}</div>}
+    </div>
+  )
+}
+
 export function NodeCard({ n, actions }: { n: Node; actions?: React.ReactNode }) {
   const st = nodeStatus(n)
   const cpu = n.sys?.cpu_pct ?? 0
   const memP = pct(n.sys?.mem_used ?? 0, n.sys?.mem_total ?? 0)
-  const month = n.month_up + n.month_down
   const t = tr(O)
   const m = tr(NM)
   const pr = procParts(n)
@@ -251,11 +278,7 @@ export function NodeCard({ n, actions }: { n: Node; actions?: React.ReactNode })
         </div>
       )}
       <div className="mt-4 border-t pt-3">
-        <div className="mb-1 flex justify-between text-xs text-subtle">
-          <span>{t.monthReset(n.reset_day)}</span>
-          <span className="tabular">{bytes(month)}{n.traffic_limit > 0 ? ` / ${bytes(n.traffic_limit, 0)}` : ''}</span>
-        </div>
-        <Progress value={n.traffic_limit > 0 ? pct(month, n.traffic_limit) : 0} />
+        <NodeQuota n={n} />
         <div className={cx('mt-2 flex justify-between text-xs text-muted tabular')}>
           <span>{t.todayX(bytes(n.today_down + n.today_up))}</span>
           <span>{t.inboundsN(n.inbounds)} · r{n.applied_revision}{n.applied_revision !== n.revision ? `→${n.revision}` : ''}{n.spool_backlog > 0 ? ` · ${t.backlog(n.spool_backlog)}` : ''}</span>

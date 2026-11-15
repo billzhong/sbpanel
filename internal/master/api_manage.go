@@ -38,6 +38,8 @@ type nodeOut struct {
 	Info            json.RawMessage `json:"info"`
 	TrafficLimit    int64           `json:"traffic_limit"`
 	ResetDay        int64           `json:"reset_day"`
+	TrafficMode     string          `json:"traffic_mode"` // what traffic_limit is compared with: both, out, in, max
+	Server          serverUsage     `json:"server"`       // the machine's metered uplink traffic this period
 	Inbounds        int64           `json:"inbounds"`
 	Sys             *pb.SysInfo     `json:"sys,omitempty"`
 	Proc            *pb.ProcInfo    `json:"proc,omitempty"`   // the sbnode process
@@ -72,12 +74,12 @@ func (m *Master) monthStart(t time.Time, resetDay int) int64 {
 
 func (m *Master) listNodes() ([]nodeOut, error) {
 	out, err := scanRows(m, `SELECT id, name, address, public_address, region, template_id, cert_serial<>'', revision, applied_revision, apply_error, last_seen,
-		cert_expire, info_json, traffic_limit, reset_day, (SELECT COUNT(*) FROM inbounds i WHERE i.node_id=nodes.id)
+		cert_expire, info_json, traffic_limit, reset_day, traffic_mode, (SELECT COUNT(*) FROM inbounds i WHERE i.node_id=nodes.id)
 		FROM nodes ORDER BY created_at`, nil, func(s func(...any) error) (nodeOut, error) {
 		var n nodeOut
 		var info string
 		err := s(&n.ID, &n.Name, &n.Address, &n.PublicAddress, &n.Region, &n.TemplateID, &n.Enrolled, &n.Revision, &n.AppliedRevision, &n.ApplyError, &n.LastSeen,
-			&n.CertExpire, &info, &n.TrafficLimit, &n.ResetDay, &n.Inbounds)
+			&n.CertExpire, &info, &n.TrafficLimit, &n.ResetDay, &n.TrafficMode, &n.Inbounds)
 		n.Info = json.RawMessage(info)
 		return n, err
 	})
@@ -101,6 +103,7 @@ func (m *Master) listNodes() ([]nodeOut, error) {
 			n.OnlineUsers = len(online)
 		}
 		ms := m.monthStart(nowT, int(n.ResetDay))
+		n.Server = m.serverUsage(n.ID, n.TrafficMode, int(n.ResetDay), nowT)
 		m.db.QueryRow(`SELECT COALESCE(SUM(up),0), COALESCE(SUM(down),0) FROM traffic_hour WHERE node_id=? AND ts>=?`, n.ID, ms).Scan(&n.MonthUp, &n.MonthDown)
 		m.db.QueryRow(`SELECT COALESCE(SUM(up),0), COALESCE(SUM(down),0) FROM traffic_hour WHERE node_id=? AND ts>=?`, n.ID, today).Scan(&n.TodayUp, &n.TodayDown)
 	}
@@ -186,6 +189,8 @@ func (m *Master) apiUpdateNode(w http.ResponseWriter, r *http.Request) {
 		Skeleton      *json.RawMessage `json:"skeleton"`
 		TrafficLimit  *int64           `json:"traffic_limit"`
 		ResetDay      *int64           `json:"reset_day"`
+		TrafficMode   *string          `json:"traffic_mode"`
+		TrafficUsed   *int64           `json:"traffic_used"` // set this period's server traffic to the provider's figure
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
@@ -223,7 +228,24 @@ func (m *Master) apiUpdateNode(w http.ResponseWriter, r *http.Request) {
 		m.db.Exec(`UPDATE nodes SET traffic_limit=? WHERE id=?`, *req.TrafficLimit, id)
 	}
 	if req.ResetDay != nil {
+		if *req.ResetDay < 1 || *req.ResetDay > 28 {
+			writeErr(w, 400, "reset_day must be 1-28")
+			return
+		}
 		m.db.Exec(`UPDATE nodes SET reset_day=? WHERE id=?`, *req.ResetDay, id)
+	}
+	if req.TrafficMode != nil {
+		if !trafficModes[*req.TrafficMode] {
+			writeErr(w, 400, "traffic_mode must be both, out, in or max")
+			return
+		}
+		m.db.Exec(`UPDATE nodes SET traffic_mode=? WHERE id=?`, *req.TrafficMode, id)
+	}
+	if req.TrafficUsed != nil {
+		if err := m.setServerUsed(id, *req.TrafficUsed); err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
 	}
 	if req.Skeleton != nil {
 		// a node-specific skeleton becomes (or updates) its own template

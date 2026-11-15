@@ -55,12 +55,20 @@ export type NodeMetrics = {
   traffic: [number, number, number][]; master?: { ts: number; cpu: number; rss: number }[]
 }
 
+export type TrafficMode = 'both' | 'out' | 'in' | 'max'
+export type ServerUsage = { tracked: boolean; rx: number; tx: number; adj: number; used: number; period_start: number; period_end: number }
+
+/** The node's usage against its cap: the machine's metered traffic once the node reports it, else user traffic. */
+export const nodeUsed = (n: Node) => (n.server?.tracked ? n.server.used : n.month_up + n.month_down)
+
 export type Node = {
   id: string; name: string; address: string; online: boolean; enrolled: boolean
   revision: number; applied_revision: number; apply_error: string; last_seen: number; cert_expire: number
   info: { version?: string; singbox?: string; hostname?: string; os?: string; arch?: string }
   public_address: string; region?: string; template_id: number
   traffic_limit: number; reset_day: number; inbounds: number; sys?: SysInfo
+  /** what traffic_limit is compared with; server: the machine's metered uplink this billing period */
+  traffic_mode: TrafficMode; server?: ServerUsage
   /** the sbnode process; master: the sbmaster process when the panel runs on this machine */
   proc?: ProcInfo; master?: ProcInfo
   rate_up: number; rate_down: number; active_conns: number; spool_backlog: number; online_users: number

@@ -88,16 +88,21 @@ func (m *Master) resetUsage(t time.Time) {
 func (m *Master) checkNodeQuota(t time.Time) {
 	type n struct {
 		id, name          string
+		mode              string
 		limit, day, level int64
 	}
-	ns, _ := scanRows(m, `SELECT id, name, traffic_limit, reset_day, notified_quota FROM nodes WHERE traffic_limit>0`, nil,
+	ns, _ := scanRows(m, `SELECT id, name, traffic_mode, traffic_limit, reset_day, notified_quota FROM nodes WHERE traffic_limit>0`, nil,
 		func(s func(...any) error) (n, error) {
 			var x n
-			return x, s(&x.id, &x.name, &x.limit, &x.day, &x.level)
+			return x, s(&x.id, &x.name, &x.mode, &x.limit, &x.day, &x.level)
 		})
 	for _, x := range ns {
-		var used int64
-		m.db.QueryRow(`SELECT COALESCE(SUM(up+down),0) FROM traffic_hour WHERE node_id=? AND ts>=?`, x.id, m.monthStart(t, int(x.day))).Scan(&used)
+		// the machine's metered traffic when the node reports it, else what users moved through it
+		su := m.serverUsage(x.id, x.mode, int(x.day), t)
+		used := su.Used
+		if !su.Tracked {
+			m.db.QueryRow(`SELECT COALESCE(SUM(up+down),0) FROM traffic_hour WHERE node_id=? AND ts>=?`, x.id, m.monthStart(t, int(x.day))).Scan(&used)
+		}
 		pct := used * 100 / x.limit
 		level := int64(0)
 		switch {

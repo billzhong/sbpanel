@@ -65,25 +65,25 @@ func (c *Config) defaults() {
 }
 
 type Master struct {
-	bg       sync.WaitGroup // background notifications, waited for by stopBackground
-	quit     chan struct{}
-	quitOnce sync.Once
-	cfg      Config
-	logins   loginLimiter
+	bg        sync.WaitGroup // background notifications, waited for by stopBackground
+	quit      chan struct{}
+	quitOnce  sync.Once
+	cfg       Config
+	logins    loginLimiter
 	topsMu    sync.Mutex
 	topsCache *topsCache
-	db       *sql.DB
-	ca       *pki.CA
-	hub      *Hub
-	log      *log.Logger
-	loc      *time.Location
-	secret   []byte // session HMAC key
-	specMu   sync.Mutex
-	ingestMu sync.Mutex
-	box      *secretBox // encrypts DNS tokens and private keys at rest
-	certs    *certManager
-	probes   *prober
-	metrics  *masterMetrics
+	db        *sql.DB
+	ca        *pki.CA
+	hub       *Hub
+	log       *log.Logger
+	loc       *time.Location
+	secret    []byte // session HMAC key
+	specMu    sync.Mutex
+	ingestMu  sync.Mutex
+	box       *secretBox // encrypts DNS tokens and private keys at rest
+	certs     *certManager
+	probes    *prober
+	metrics   *masterMetrics
 }
 
 func New(cfg Config) (*Master, error) {

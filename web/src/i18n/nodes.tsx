@@ -34,6 +34,10 @@ export const ND = dict({
   region: 'Region', regionHint: 'Country code shown after the node name in subscriptions, e.g. US',
   pubHint2: 'The default address in subscriptions. Leave empty to use the source IP the node connects to the master from.',
   limit: 'Monthly traffic cap (GB)', unlimited: 'Unlimited', current: (b: string) => `Currently ${b}`, limitHint: 'Your VPS plan allowance, for progress and alerts',
+  mode: 'Billing', modeHint: 'How the provider counts toward the cap',
+  modeOpts: (k: string) => ({ out: 'Out only', in: 'In only', max: 'Larger of in/out' } as Record<string, string>)[k] ?? 'In + out (bidirectional)',
+  used: 'Used this period (GB)', usedHint: (b: string) => `Counted ${b}. Enter the provider's figure to correct it; counting continues from there`,
+  badUsed: 'Used traffic format is wrong, e.g. 446.83 or 1.2T',
   resetDay: 'Monthly reset day', specTitle: (n: string, r: number) => `${n} · Deployed config r${r}`, loading: 'Loading…',
 }, {
   deleted: '节点已删除', title: '节点',
@@ -66,5 +70,9 @@ export const ND = dict({
   region: '地区', regionHint: '两位国家代码，显示在订阅节点名后面，例如 US',
   pubHint2: '订阅里默认使用的地址；留空使用节点连接 master 时的来源 IP',
   limit: '月流量上限（GB）', unlimited: '不限', current: (b) => `当前 ${b}`, limitHint: 'VPS 套餐流量，用于进度和告警',
+  mode: '计费方式', modeHint: '服务商如何计入流量上限',
+  modeOpts: (k) => ({ out: '仅出站', in: '仅入站', max: '入出取大' } as Record<string, string>)[k] ?? '入站 + 出站（双向）',
+  used: '本期已用（GB）', usedHint: (b) => `当前统计 ${b}。填入服务商面板的数字即可校正，之后在此基础上继续累计`,
+  badUsed: '已用流量格式不对，例如 446.83 或 1.2T',
   resetDay: '每月重置日', specTitle: (n, r) => `${n} · 下发配置 r${r}`, loading: '加载中…',
 })

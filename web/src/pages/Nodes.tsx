@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type Node, type Enroll, type Template } from '../lib/api'
+import { api, nodeUsed, type Node, type Enroll, type Template, type TrafficMode } from '../lib/api'
 import { bytes, parseSize, dateTime } from '../lib/fmt'
 import { useRoute, go, replace, withParams } from '../lib/router'
 import { useAction } from '../lib/actions'
@@ -242,11 +242,18 @@ function EditNode({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen
   const templates = useQuery({ queryKey: ['templates'], queryFn: () => api<Template[]>('/templates') })
   const [limit, setLimit] = useState(n.traffic_limit ? (n.traffic_limit / 1024 ** 3).toString() : '')
   const [day, setDay] = useState(String(n.reset_day || 1))
+  const [mode, setMode] = useState<TrafficMode>(n.traffic_mode || 'both')
+  const [used, setUsed] = useState('')
   const save = useAction({
     fn: () => {
       const l = limit.trim() ? parseSize(limit) : 0
       if (Number.isNaN(l)) throw new Error(T().badLimit)
-      return api(`/nodes/${n.id}`, { method: 'PATCH', body: { name, public_address: pub, region: region.trim().toUpperCase(), template_id: Number(tpl), traffic_limit: l, reset_day: Math.min(28, Math.max(1, Number(day) || 1)) } })
+      const u = used.trim() ? parseSize(used) : undefined
+      if (Number.isNaN(u)) throw new Error(T().badUsed)
+      const rd = Math.min(28, Math.max(1, Number(day) || 1))
+      // the correction applies to the period of the reset day being saved, so it goes in a second request
+      return api(`/nodes/${n.id}`, { method: 'PATCH', body: { name, public_address: pub, region: region.trim().toUpperCase(), template_id: Number(tpl), traffic_limit: l, reset_day: rd, traffic_mode: mode } })
+        .then(() => u !== undefined ? api(`/nodes/${n.id}`, { method: 'PATCH', body: { traffic_used: u } }) : undefined)
     },
     apply: Number(tpl) !== n.template_id, success: T().savedX(name), invalidate: [['nodes'], ['templates']], onSuccess: onClose,
   })
@@ -265,6 +272,12 @@ function EditNode({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen
         <div className="grid grid-cols-2 gap-4">
           <Field label={T().limit} value={limit} onChange={setLimit} placeholder={T().unlimited} description={n.traffic_limit ? T().current(bytes(n.traffic_limit)) : T().limitHint} />
           <Field label={T().resetDay} value={day} onChange={setDay} description="1–28" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Select label={T().mode} value={mode} onChange={setMode} description={T().modeHint}
+            options={(['both', 'out', 'in', 'max'] as const).map((id) => ({ id, label: T().modeOpts(id) }))} />
+          <Field label={T().used} value={used} onChange={setUsed} placeholder={(nodeUsed(n) / 1024 ** 3).toFixed(2)}
+            description={T().usedHint(bytes(nodeUsed(n)))} />
         </div>
       </div>
     </ModalDialog>
