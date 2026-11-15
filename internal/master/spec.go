@@ -131,6 +131,11 @@ func buildSpec(db *sql.DB, nodeID string) (*pb.NodeSpec, error) {
 	if err != nil {
 		return nil, err
 	}
+	if nr, _ := loadNodeRoute(db, nodeID); len(nr.Rules) > 0 || nr.Final != "" {
+		if skeleton, _, _, err = mergeNodeRoute(skeleton, nr, false); err != nil {
+			return nil, err
+		}
+	}
 	var sk map[string]any
 	if err := json.Unmarshal([]byte(skeleton), &sk); err != nil {
 		return nil, fmt.Errorf("skeleton: %w", err)

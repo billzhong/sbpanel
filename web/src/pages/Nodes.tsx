@@ -7,7 +7,7 @@ import { useAction } from '../lib/actions'
 import { ActionMenu, Button, Callout, Card, Confirm, CopyText, Empty, Field, ModalDialog, PageHeader, Presence, Segmented, Select, Skeleton, cx, useSticky } from '../ui/kit'
 import { IconCheck, IconPlus } from '../ui/icons'
 import { NodeCard } from './Overview'
-import { NodeDrawer } from './NodeDetail'
+import { NodeDrawer, type NodeTab } from './NodeDetail'
 import { HealthDot, ProbeDrawer, useProbeResults, useRunProbe } from '../ui/probe'
 import { tr } from '../i18n'
 import { C } from '../i18n/common'
@@ -79,7 +79,8 @@ export function NodesPage() {
       </div>
 
       <NodeDrawer isOpen={!!openId} n={openNode} ids={(nodes.data ?? []).map((n) => n.id)} menu={openNode && menu(openNode)}
-        onNav={(id) => replace('nodes', withParams(params, { id }))} onClose={() => go('nodes', withParams(params, { id: undefined }))} />
+        tab={params.get('tab') === 'route' ? 'route' : 'status'} onTab={(t: NodeTab) => replace('nodes', withParams(params, { tab: t === 'status' ? undefined : t }))}
+        onNav={(id) => replace('nodes', withParams(params, { id }))} onClose={() => go('nodes', withParams(params, { id: undefined, tab: undefined }))} />
       <ProbeDrawer isOpen={!!probeNode} onClose={() => setProbeNode(null)} title={T().probeTitle(probeSticky?.name ?? '')}
         results={probeSticky ? probeOf(probeSticky.id) : []} running={runProbe.isPending} onRetry={() => probeSticky && runProbe.mutate({ node_id: probeSticky.id })} />
       <Presence value={wizard}>

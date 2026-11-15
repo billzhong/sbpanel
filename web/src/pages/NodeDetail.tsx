@@ -3,7 +3,9 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api, type Inbound, type Node, type NodeMetrics } from '../lib/api'
 import { href } from '../lib/router'
 import { ago, bytes, dateTime, duration, pct, rate } from '../lib/fmt'
-import { Badge, Card, Drawer, Empty, IconButton, Progress, Segmented, Skeleton } from '../ui/kit'
+import { Badge, Card, Drawer, Empty, IconButton, Progress, Segmented, Skeleton, Tabs } from '../ui/kit'
+import { NodeRouting } from './NodeRoute'
+import { NR } from '../i18n/noderoute'
 import { TimeChart, type ChartSeries } from '../ui/charts'
 import { IconChevron } from '../ui/icons'
 import { nodeStatus, pctText, procParts, PROC_COLOR, UsageBar } from './Overview'
@@ -17,8 +19,11 @@ const RANGES: Record<Range, { sec: number; step: number }> = { '1h': { sec: 3600
 const C_NODE = PROC_COLOR.sbnode, C_MASTER = PROC_COLOR.sbmaster
 
 /** Second-level view of one node: live machine/process health, 1–24 h history, config and quota. */
-export function NodeDrawer({ n, isOpen, ids, onNav, onClose, menu }: {
+export type NodeTab = 'status' | 'route'
+
+export function NodeDrawer({ n, isOpen, ids, onNav, onClose, menu, tab, onTab }: {
   n: Node | undefined; isOpen: boolean; ids: string[]; onNav: (id: string) => void; onClose: () => void; menu?: ReactNode
+  tab: NodeTab; onTab: (t: NodeTab) => void
 }) {
   const m = tr(NM)
   const [range, setRange] = useState<Range>('1h')
@@ -39,6 +44,10 @@ export function NodeDrawer({ n, isOpen, ids, onNav, onClose, menu }: {
       {!n ? <div className="flex flex-col gap-4"><Skeleton className="h-24" /><Skeleton className="h-48" /><Skeleton className="h-48" /></div> : (
         <div className="flex flex-col gap-5">
           {n.apply_error && <div className="rounded-[10px] bg-warn/10 px-3 py-2 font-mono text-xs break-all text-warn">{n.apply_error}</div>}
+          <div className="-mb-5">
+            <Tabs label={tr(NR).tabs} value={tab} onChange={onTab} tabs={[{ id: 'status', label: tr(NR).tStatus }, { id: 'route', label: tr(NR).tRouting }]} />
+          </div>
+          {tab === 'route' ? <NodeRouting n={n} /> : <>
           <Now n={n} />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-[15px] font-semibold">{m.history}</h3>
@@ -47,6 +56,7 @@ export function NodeDrawer({ n, isOpen, ids, onNav, onClose, menu }: {
           <History id={n.id} range={range} />
           <Info n={n} />
           <Inbounds id={n.id} />
+          </>}
         </div>
       )}
     </Drawer>

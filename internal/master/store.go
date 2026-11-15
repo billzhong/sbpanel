@@ -188,6 +188,8 @@ var migrations = []string{
 	  proc INTEGER NOT NULL, proc_cpu REAL NOT NULL, proc_rss INTEGER NOT NULL,
 	  rate_up INTEGER NOT NULL, rate_down INTEGER NOT NULL, net_rx INTEGER NOT NULL, net_tx INTEGER NOT NULL,
 	  conns INTEGER NOT NULL, PRIMARY KEY(node_id, ts)) WITHOUT ROWID`,
+	// v12: a node's own route rules, merged into its template's route (noderoute.go)
+	`CREATE TABLE node_routes(node_id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
 }
 
 func migrate(db *sql.DB) error {

@@ -249,6 +249,7 @@ func (m *Master) apiDeleteNode(w http.ResponseWriter, r *http.Request) {
 	m.db.Exec(`DELETE FROM hosts WHERE inbound_id IN (SELECT id FROM inbounds WHERE node_id=?)`, id)
 	m.db.Exec(`DELETE FROM group_inbounds WHERE inbound_id IN (SELECT id FROM inbounds WHERE node_id=?)`, id)
 	m.db.Exec(`DELETE FROM inbounds WHERE node_id=?`, id)
+	m.db.Exec(`DELETE FROM node_routes WHERE node_id=?`, id)
 	m.db.Exec(`DELETE FROM nodes WHERE id=?`, id) // cert_serial gone => node certificate rejected
 	m.audit(r, "node.delete", id, "")
 	m.hub.drop(id)
