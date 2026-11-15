@@ -1,11 +1,12 @@
 package master
 
-// Traffic limits: extra quotas on a set of inbounds, counted per user. A home line reached
-// through several relays is one limit over all of those inbounds, e.g. "Frontier 50 GB a
-// month" inside a 200 GB total. A user over a limit is taken off its inbounds only (the
-// spec drops them, the node closes their connections there, subscriptions hide the
-// entries); everything else keeps working. Limits reset with the user's own cycle or on a
-// fixed day of the month.
+// Traffic limits: presets of an extra quota on a set of inbounds (e.g. "home lines, 50 GB a
+// month" over every relay reaching them) that admins attach to individual users. Users
+// without one have no such limit. A user over an attached limit is taken off its inbounds
+// only (the spec drops them, the node closes their connections there, subscriptions hide
+// the entries); everything else keeps working. Limits reset with the user's own cycle or on
+// a fixed day of the month. user_rule_limits holds the attachments: traffic_limit 0 means
+// the preset's size (so editing the preset applies to everyone on it), > 0 a custom size.
 //
 // Counters are exact like the total: ingest updates inbound_usage and rule_usage in the
 // report's transaction. A limit created or edited later is backfilled (inbound_usage for
@@ -30,7 +31,7 @@ type limitRule struct {
 	ID           int64   `json:"id"`
 	Name         string  `json:"name"`
 	Note         string  `json:"note"`
-	TrafficLimit int64   `json:"traffic_limit"`
+	TrafficLimit int64   `json:"traffic_limit"` // per attached user and period
 	Period       string  `json:"period"`
 	ResetDay     int     `json:"reset_day"`
 	Enabled      bool    `json:"enabled"`
@@ -39,20 +40,22 @@ type limitRule struct {
 	// computed
 	PeriodStart int64 `json:"period_start"` // month limits; 0 = each user's own cycle
 	NextReset   int64 `json:"next_reset"`   // month limits
-	Users       int   `json:"users"`        // users who can reach at least one of its inbounds
+	Users       int   `json:"users"`        // users it is attached to
 	Limited     int   `json:"limited"`      // of those, how many are over it now
-	Used        int64 `json:"used"`         // all users, this period
-	Overrides   int   `json:"overrides"`    // users with their own limit
+	Used        int64 `json:"used"`         // attached users, this period
+	Overrides   int   `json:"overrides"`    // attached with a custom size
 	curPeriod   int64
 }
+
+// effLimit is the size in effect for an attachment (ul) of a preset (r).
+const effLimit = `(CASE WHEN ul.traffic_limit>0 THEN ul.traffic_limit ELSE r.traffic_limit END)`
 
 // limitedUsersSQL selects the users a limit has closed an inbound (?) for.
 const limitedUsersSQL = `SELECT ru.user_id FROM rule_usage ru
 	JOIN traffic_rules r ON r.id=ru.rule_id AND ru.period=r.cur_period
 	JOIN traffic_rule_inbounds ri ON ri.rule_id=r.id
-	LEFT JOIN user_rule_limits ul ON ul.rule_id=r.id AND ul.user_id=ru.user_id
-	WHERE ri.inbound_id=? AND r.enabled=1 AND COALESCE(ul.traffic_limit, r.traffic_limit)>0
-	AND ru.up+ru.down>=COALESCE(ul.traffic_limit, r.traffic_limit)`
+	JOIN user_rule_limits ul ON ul.rule_id=r.id AND ul.user_id=ru.user_id
+	WHERE ri.inbound_id=? AND r.enabled=1 AND ru.up+ru.down>=` + effLimit
 
 // blockedInbounds lists the inbounds a limit has closed for one user.
 func (m *Master) blockedInbounds(uid int64) map[int64]bool {
@@ -60,9 +63,8 @@ func (m *Master) blockedInbounds(uid int64) map[int64]bool {
 	rows, err := m.db.Query(`SELECT DISTINCT ri.inbound_id FROM rule_usage ru
 		JOIN traffic_rules r ON r.id=ru.rule_id AND ru.period=r.cur_period
 		JOIN traffic_rule_inbounds ri ON ri.rule_id=r.id
-		LEFT JOIN user_rule_limits ul ON ul.rule_id=r.id AND ul.user_id=ru.user_id
-		WHERE ru.user_id=? AND r.enabled=1 AND COALESCE(ul.traffic_limit, r.traffic_limit)>0
-		AND ru.up+ru.down>=COALESCE(ul.traffic_limit, r.traffic_limit)`, uid)
+		JOIN user_rule_limits ul ON ul.rule_id=r.id AND ul.user_id=ru.user_id
+		WHERE ru.user_id=? AND r.enabled=1 AND ru.up+ru.down>=`+effLimit, uid)
 	if err != nil {
 		return out
 	}
@@ -183,9 +185,12 @@ func (m *Master) countLimits(tx *sql.Tx, nodeID string, ws int64, deltas map[lim
 			RETURNING up+down`, r.id, k.uid, m.rulePeriod(r.period, r.day, t), d[0], d[1]).Scan(&total); err != nil {
 			return nil, err
 		}
-		limit := r.limit
 		var own int64
-		if tx.QueryRow(`SELECT traffic_limit FROM user_rule_limits WHERE user_id=? AND rule_id=?`, k.uid, r.id).Scan(&own) == nil {
+		if tx.QueryRow(`SELECT traffic_limit FROM user_rule_limits WHERE user_id=? AND rule_id=?`, k.uid, r.id).Scan(&own) != nil {
+			continue // counted (so attaching it later starts from the real number) but not limited
+		}
+		limit := r.limit
+		if own > 0 {
 			limit = own
 		}
 		if limit > 0 && total >= limit && total-d[0]-d[1] < limit {
@@ -208,9 +213,7 @@ func (m *Master) limitsCrossed(cs []limitCross) {
 
 // resetUserLimits clears the per-inbound counters and the user-cycle limits of users whose
 // usage was just reset. ex runs inside the caller's transaction when it has one.
-func resetUserLimits(ex interface {
-	Exec(string, ...any) (sql.Result, error)
-}, ids ...int64) error {
+func resetUserLimits(ex execer, ids ...int64) error {
 	for _, id := range ids {
 		if _, err := ex.Exec(`DELETE FROM inbound_usage WHERE user_id=?`, id); err != nil {
 			return err
@@ -298,13 +301,12 @@ func (m *Master) loadLimits(where string, args ...any) ([]limitRule, error) {
 			x.PeriodStart = x.curPeriod
 			x.NextReset = m.nextMonthReset(x.curPeriod)
 		}
-		m.db.QueryRow(`SELECT COUNT(DISTINCT ug.user_id) FROM user_groups ug JOIN group_inbounds gi ON gi.group_id=ug.group_id
-			JOIN traffic_rule_inbounds ri ON ri.inbound_id=gi.inbound_id WHERE ri.rule_id=?`, x.ID).Scan(&x.Users)
-		m.db.QueryRow(`SELECT COALESCE(SUM(up+down),0) FROM rule_usage WHERE rule_id=? AND period=?`, x.ID, x.curPeriod).Scan(&x.Used)
-		m.db.QueryRow(`SELECT COUNT(*) FROM user_rule_limits WHERE rule_id=?`, x.ID).Scan(&x.Overrides)
-		m.db.QueryRow(`SELECT COUNT(*) FROM rule_usage ru LEFT JOIN user_rule_limits ul ON ul.rule_id=ru.rule_id AND ul.user_id=ru.user_id
-			WHERE ru.rule_id=? AND ru.period=? AND COALESCE(ul.traffic_limit, ?)>0 AND ru.up+ru.down>=COALESCE(ul.traffic_limit, ?)`,
-			x.ID, x.curPeriod, x.TrafficLimit, x.TrafficLimit).Scan(&x.Limited)
+		m.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(traffic_limit>0),0) FROM user_rule_limits WHERE rule_id=?`, x.ID).Scan(&x.Users, &x.Overrides)
+		m.db.QueryRow(`SELECT COALESCE(SUM(ru.up+ru.down),0) FROM rule_usage ru JOIN user_rule_limits ul ON ul.rule_id=ru.rule_id AND ul.user_id=ru.user_id
+			WHERE ru.rule_id=? AND ru.period=?`, x.ID, x.curPeriod).Scan(&x.Used)
+		m.db.QueryRow(`SELECT COUNT(*) FROM rule_usage ru JOIN user_rule_limits ul ON ul.rule_id=ru.rule_id AND ul.user_id=ru.user_id
+			JOIN traffic_rules r ON r.id=ru.rule_id WHERE ru.rule_id=? AND ru.period=? AND ru.up+ru.down>=`+effLimit,
+			x.ID, x.curPeriod).Scan(&x.Limited)
 		if !x.Enabled {
 			x.Limited = 0
 		}
@@ -499,9 +501,9 @@ func (m *Master) apiDeleteLimit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
-// PUT /api/users/{id}/limits/{rule}: {"traffic_limit": bytes} sets the user's own limit
-// (0 = no limit for this user), null goes back to the limit's default. "reset_usage": true
-// clears the user's usage of it for the current period.
+// PUT /api/users/{id}/limits/{rule}: {"attach": true, "traffic_limit": bytes} attaches the
+// preset to the user (traffic_limit 0 or absent = the preset's size), {"attach": false}
+// takes it off; "reset_usage": true clears the user's usage of it for the current period.
 func (m *Master) apiSetUserLimit(w http.ResponseWriter, r *http.Request) {
 	uid, err := pathID(r)
 	if err != nil {
@@ -514,6 +516,7 @@ func (m *Master) apiSetUserLimit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var q struct {
+		Attach       *bool  `json:"attach"`
 		TrafficLimit *int64 `json:"traffic_limit"`
 		ResetUsage   bool   `json:"reset_usage"`
 	}
@@ -531,11 +534,15 @@ func (m *Master) apiSetUserLimit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, T(reqLang(r), "Traffic limit must not be negative"))
 		return
 	}
-	if q.TrafficLimit == nil {
-		m.db.Exec(`DELETE FROM user_rule_limits WHERE user_id=? AND rule_id=?`, uid, rid)
-	} else {
-		m.db.Exec(`INSERT INTO user_rule_limits(user_id, rule_id, traffic_limit) VALUES(?,?,?)
-			ON CONFLICT(user_id, rule_id) DO UPDATE SET traffic_limit=excluded.traffic_limit`, uid, rid, *q.TrafficLimit)
+	if q.Attach != nil || q.TrafficLimit != nil {
+		attach := q.Attach == nil || *q.Attach
+		size := int64(0)
+		if q.TrafficLimit != nil {
+			size = *q.TrafficLimit
+		}
+		if err := attachLimit(m.db, uid, rid, attach, size); errf(w, err) {
+			return
+		}
 	}
 	if q.ResetUsage {
 		m.db.Exec(`DELETE FROM rule_usage WHERE user_id=? AND rule_id=?`, uid, rid)
@@ -545,14 +552,102 @@ func (m *Master) apiSetUserLimit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
+type execer interface {
+	Exec(string, ...any) (sql.Result, error)
+}
+
+// attachLimit attaches a preset to a user (size 0 = the preset's size) or takes it off.
+func attachLimit(ex execer, uid, rid int64, attach bool, size int64) error {
+	if !attach {
+		_, err := ex.Exec(`DELETE FROM user_rule_limits WHERE user_id=? AND rule_id=?`, uid, rid)
+		return err
+	}
+	_, err := ex.Exec(`INSERT INTO user_rule_limits(user_id, rule_id, traffic_limit) SELECT ?, id, ? FROM traffic_rules WHERE id=?
+		ON CONFLICT(user_id, rule_id) DO UPDATE SET traffic_limit=excluded.traffic_limit`, uid, size, rid)
+	return err
+}
+
+// userLimitSet is one preset in a user's create / update request.
+type userLimitSet struct {
+	ID           int64 `json:"id"`
+	TrafficLimit int64 `json:"traffic_limit"` // 0 = the preset's size
+}
+
+// setUserLimits replaces the presets attached to a user.
+func setUserLimits(ex execer, uid int64, ls []userLimitSet) error {
+	if _, err := ex.Exec(`DELETE FROM user_rule_limits WHERE user_id=?`, uid); err != nil {
+		return err
+	}
+	for _, l := range ls {
+		if l.TrafficLimit < 0 {
+			return fmt.Errorf("Traffic limit must not be negative")
+		}
+		if err := attachLimit(ex, uid, l.ID, true, l.TrafficLimit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GET /api/limits/{id}/users: the users a preset is attached to, with usage this period.
+func (m *Master) apiLimitUsers(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	rs, err := m.loadLimits(` WHERE id=?`, id)
+	if errf(w, err) {
+		return
+	}
+	if len(rs) == 0 {
+		writeErr(w, 404, T(reqLang(r), "Traffic limit not found"))
+		return
+	}
+	x := rs[0]
+	type row struct {
+		UserID       int64  `json:"user_id"`
+		Username     string `json:"username"`
+		Enabled      bool   `json:"enabled"`
+		TrafficLimit int64  `json:"traffic_limit"` // in effect
+		Override     bool   `json:"override"`      // custom size
+		Up           int64  `json:"up"`
+		Down         int64  `json:"down"`
+		Used         int64  `json:"used"`
+		Exhausted    bool   `json:"exhausted"`
+		Reaches      bool   `json:"reaches"` // can use at least one of its inbounds
+	}
+	out, err := scanRows(m, `SELECT u.id, u.username, u.enabled, ul.traffic_limit>0, CASE WHEN ul.traffic_limit>0 THEN ul.traffic_limit ELSE ? END,
+		COALESCE(ru.up,0), COALESCE(ru.down,0),
+		EXISTS(SELECT 1 FROM user_groups ug JOIN group_inbounds gi ON gi.group_id=ug.group_id JOIN traffic_rule_inbounds ri ON ri.inbound_id=gi.inbound_id
+			WHERE ug.user_id=u.id AND ri.rule_id=?)
+		FROM users u JOIN user_rule_limits ul ON ul.user_id=u.id AND ul.rule_id=?
+		LEFT JOIN rule_usage ru ON ru.user_id=u.id AND ru.rule_id=? AND ru.period=?
+		ORDER BY COALESCE(ru.up,0)+COALESCE(ru.down,0) DESC, u.id`, []any{x.TrafficLimit, id, id, id, x.curPeriod},
+		func(s func(...any) error) (row, error) {
+			var r row
+			err := s(&r.UserID, &r.Username, &r.Enabled, &r.Override, &r.TrafficLimit, &r.Up, &r.Down, &r.Reaches)
+			r.Used = r.Up + r.Down
+			r.Exhausted = x.Enabled && r.TrafficLimit > 0 && r.Used >= r.TrafficLimit
+			return r, err
+		})
+	if errf(w, err) {
+		return
+	}
+	if out == nil {
+		out = []row{}
+	}
+	writeJSON(w, 200, out)
+}
+
 // ---------- per-user view (user drawer, subscription page) ----------
 
 type userLimit struct {
 	ID           int64   `json:"id"`
 	Name         string  `json:"name"`
-	TrafficLimit int64   `json:"traffic_limit"` // in effect for this user; 0 = none
-	Default      int64   `json:"default_limit"`
-	Override     bool    `json:"override"`
+	TrafficLimit int64   `json:"traffic_limit"` // in effect for this user
+	Default      int64   `json:"default_limit"` // the preset's size
+	Override     bool    `json:"override"`      // custom size
 	Up           int64   `json:"up"`
 	Down         int64   `json:"down"`
 	Used         int64   `json:"used"`
@@ -573,16 +668,16 @@ type inboundUse struct {
 	Blocked   bool   `json:"blocked"`
 }
 
-// userLimits lists the enabled limits covering inbounds the user can reach.
+// userLimits lists the enabled presets attached to the user.
 func (m *Master) userLimits(uid int64) []userLimit {
-	rs, _ := m.loadLimits(` WHERE enabled=1 AND id IN (SELECT ri.rule_id FROM traffic_rule_inbounds ri
-		JOIN group_inbounds gi ON gi.inbound_id=ri.inbound_id JOIN user_groups ug ON ug.group_id=gi.group_id WHERE ug.user_id=?)`, uid)
+	rs, _ := m.loadLimits(` WHERE enabled=1 AND id IN (SELECT rule_id FROM user_rule_limits WHERE user_id=?)`, uid)
 	out := []userLimit{}
 	for _, x := range rs {
 		ul := userLimit{ID: x.ID, Name: x.Name, TrafficLimit: x.TrafficLimit, Default: x.TrafficLimit, Period: x.Period,
 			NextReset: x.NextReset, InboundIDs: x.InboundIDs}
 		var own int64
-		if m.db.QueryRow(`SELECT traffic_limit FROM user_rule_limits WHERE user_id=? AND rule_id=?`, uid, x.ID).Scan(&own) == nil {
+		m.db.QueryRow(`SELECT traffic_limit FROM user_rule_limits WHERE user_id=? AND rule_id=?`, uid, x.ID).Scan(&own)
+		if own > 0 {
 			ul.TrafficLimit, ul.Override = own, true
 		}
 		m.db.QueryRow(`SELECT up, down FROM rule_usage WHERE rule_id=? AND user_id=? AND period=?`, x.ID, uid, x.curPeriod).Scan(&ul.Up, &ul.Down)
@@ -611,4 +706,36 @@ func (m *Master) userInboundUsage(uid int64) []inboundUse {
 		rows = []inboundUse{}
 	}
 	return rows
+}
+
+type userLimitIndex struct {
+	sets map[int64][]userLimitSet
+	out  map[int64]int
+}
+
+// allUserLimits is every user's attached presets and how many are used up (user list).
+func (m *Master) allUserLimits() userLimitIndex {
+	x := userLimitIndex{sets: map[int64][]userLimitSet{}, out: map[int64]int{}}
+	if rows, err := m.db.Query(`SELECT user_id, rule_id, traffic_limit FROM user_rule_limits ORDER BY rule_id`); err == nil {
+		for rows.Next() {
+			var uid int64
+			var l userLimitSet
+			rows.Scan(&uid, &l.ID, &l.TrafficLimit)
+			x.sets[uid] = append(x.sets[uid], l)
+		}
+		rows.Close()
+	}
+	if rows, err := m.db.Query(`SELECT ru.user_id, COUNT(*) FROM rule_usage ru
+		JOIN traffic_rules r ON r.id=ru.rule_id AND ru.period=r.cur_period AND r.enabled=1
+		JOIN user_rule_limits ul ON ul.rule_id=r.id AND ul.user_id=ru.user_id
+		WHERE ru.up+ru.down>=` + effLimit + ` GROUP BY ru.user_id`); err == nil {
+		for rows.Next() {
+			var uid int64
+			var n int
+			rows.Scan(&uid, &n)
+			x.out[uid] = n
+		}
+		rows.Close()
+	}
+	return x
 }

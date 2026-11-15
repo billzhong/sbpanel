@@ -90,6 +90,11 @@ func TestTrafficLimitLifecycle(t *testing.T) {
 	}
 	var created struct{ ID int64 }
 	json.Unmarshal(w.Body.Bytes(), &created)
+	// a preset limits nobody until it is attached; usage is counted anyway
+	if len(m.userLimits(1)) != 0 {
+		t.Fatal("unattached preset listed for user")
+	}
+	hcall(t, m.apiSetUserLimit, "PUT", "/", map[string]any{"attach": true}, "id", "1", "rule", itoa(int(created.ID)))
 	lim := func(uid int64) userLimit {
 		for _, l := range m.userLimits(uid) {
 			if l.ID == created.ID {
@@ -110,6 +115,11 @@ func TestTrafficLimitLifecycle(t *testing.T) {
 	}
 	if got := specUsers(t, m, "home-a"); !slices.Equal(got, []string{"1", "2"}) {
 		t.Fatalf("still allowed: %v", got)
+	}
+	// bob has no preset: unlimited however much he uses
+	report(t, m, ws, stat("2", "home-a", 0, 5000))
+	if got := specUsers(t, m, "home-a"); !slices.Equal(got, []string{"1", "2"}) {
+		t.Fatalf("unattached user limited: %v", got)
 	}
 	// crossing the limit drops the user from the line's inbounds only, and records an event
 	report(t, m, ws, stat("1", "home-a", 0, 200))
@@ -153,8 +163,8 @@ func TestTrafficLimitLifecycle(t *testing.T) {
 		t.Fatalf("inbound usage: %v", use)
 	}
 
-	// a user's own limit: raise it -> back on the line
-	w = hcall(t, m.apiSetUserLimit, "PUT", "/", map[string]any{"traffic_limit": 5000}, "id", "1", "rule", itoa(int(created.ID)))
+	// a custom size for this user: raise it -> back on the line
+	w = hcall(t, m.apiSetUserLimit, "PUT", "/", map[string]any{"attach": true, "traffic_limit": 5000}, "id", "1", "rule", itoa(int(created.ID)))
 	if w.Code != 200 {
 		t.Fatalf("override: %d %s", w.Code, w.Body)
 	}
@@ -164,16 +174,16 @@ func TestTrafficLimitLifecycle(t *testing.T) {
 	if got := specUsers(t, m, "home-a"); !slices.Equal(got, []string{"1", "2"}) {
 		t.Fatalf("override reopens: %v", got)
 	}
-	// 0 = no limit for this user
-	hcall(t, m.apiSetUserLimit, "PUT", "/", map[string]any{"traffic_limit": 0}, "id", "1", "rule", itoa(int(created.ID)))
+	// taken off: no limit, line open whatever the usage
+	hcall(t, m.apiSetUserLimit, "PUT", "/", map[string]any{"attach": false}, "id", "1", "rule", itoa(int(created.ID)))
 	report(t, m, ws, stat("1", "home-a", 0, 1<<30))
-	if l := lim(1); l.Exhausted {
-		t.Fatalf("exempt user exhausted: %+v", l)
+	if len(m.userLimits(1)) != 0 || len(m.blockedInbounds(1)) != 0 {
+		t.Fatal("detached preset still applies")
 	}
-	// null = back to the default -> closed again
-	hcall(t, m.apiSetUserLimit, "PUT", "/", map[string]any{"traffic_limit": nil}, "id", "1", "rule", itoa(int(created.ID)))
+	// re-attached at the preset's size -> closed again (the usage was counted meanwhile)
+	hcall(t, m.apiUpdateUser, "PATCH", "/", map[string]any{"limits": []map[string]any{{"id": created.ID}}}, "id", "1")
 	if l := lim(1); !l.Exhausted || l.Override {
-		t.Fatalf("back to default: %+v", l)
+		t.Fatalf("back to preset size: %+v", l)
 	}
 
 	// subscription: the closed line is hidden from configs, listed on the page as used up
@@ -223,10 +233,13 @@ func TestTrafficLimitLifecycle(t *testing.T) {
 	// listing
 	var list []limitRule
 	json.Unmarshal(hcall(t, m.apiLimits, "GET", "/api/limits", nil).Body.Bytes(), &list)
-	if len(list) != 1 || list[0].Users != 2 || !slices.Equal(list[0].InboundIDs, []int64{homeA, homeB}) {
+	if len(list) != 1 || list[0].Users != 1 || !slices.Equal(list[0].InboundIDs, []int64{homeA, homeB}) {
 		t.Fatalf("list: %+v", list)
 	}
-	// disabling a limit lifts it
+	// batch attach; disabling a limit lifts it
+	if _, err := m.applyBatch(batchReq{IDs: []int64{2}, Action: "set_limit", Value: json.RawMessage(`{"rule_id":` + itoa(int(created.ID)) + `,"attach":true}`)}); err != nil {
+		t.Fatal(err)
+	}
 	report(t, m, ws, stat("2", "home-b", 0, 2000))
 	if got := specUsers(t, m, "home-b"); !slices.Equal(got, []string{"1"}) {
 		t.Fatalf("bob over: %v", got)
@@ -259,12 +272,24 @@ func TestTrafficLimitMonthPeriod(t *testing.T) {
 	}
 	var id int64
 	m.db.QueryRow(`SELECT id FROM traffic_rules`).Scan(&id)
+	if err := attachLimit(m.db, 1, id, true, 0); err != nil {
+		t.Fatal(err)
+	}
 	if l := m.userLimits(1)[0]; l.Used != 400 || l.NextReset != m.nextMonthReset(start) {
 		t.Fatalf("month backfill: %+v", l)
 	}
 	report(t, m, nowT.Unix(), stat("1", "home-a", 0, 700))
 	if got := specUsers(t, m, "home-a"); !slices.Equal(got, []string{"2"}) {
 		t.Fatalf("closed: %v", got)
+	}
+	// users: attached only
+	var lu []struct {
+		UserID    int64 `json:"user_id"`
+		Exhausted bool  `json:"exhausted"`
+	}
+	json.Unmarshal(hcall(t, m.apiLimitUsers, "GET", "/", nil, "id", itoa(int(id))).Body.Bytes(), &lu)
+	if len(lu) != 1 || lu[0].UserID != 1 || !lu[0].Exhausted {
+		t.Fatalf("limit users: %+v", lu)
 	}
 	// the user's own reset does not touch a calendar-month limit
 	resetUserLimits(m.db, 1)
@@ -297,6 +322,7 @@ func TestTrafficLimitMonthPeriod(t *testing.T) {
 func TestTrafficLimitCleanupAndMigration(t *testing.T) {
 	m, homeA, _, _ := limitsFixture(t)
 	hcall(t, m.apiCreateLimit, "POST", "/", map[string]any{"name": "Home", "traffic_limit": 10, "inbound_ids": []int64{homeA}})
+	attachLimit(m.db, 2, 1, true, 0)
 	report(t, m, time.Now().Unix(), stat("2", "home-a", 0, 50))
 	hcall(t, m.apiDeleteUser, "DELETE", "/", nil, "id", "2")
 	var n int

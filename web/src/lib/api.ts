@@ -65,7 +65,11 @@ export type User = {
   used_up: number; used_down: number; life_up: number; life_down: number; created_at: number; online_ips: number
   device_limit: number; speed_up: number; speed_down: number; last_reset_at: number; sub_last_at: number; sub_last_ua: string
   group_ids: number[]; sub_profile_id?: number
+  /** traffic limit presets on the user; traffic_limit 0 = the preset's size */
+  limits?: { id: number; traffic_limit: number }[]; limits_exhausted?: number
 }
+
+export type LimitUser = { user_id: number; username: string; enabled: boolean; traffic_limit: number; override: boolean; up: number; down: number; used: number; exhausted: boolean; reaches: boolean }
 
 export type Group = { id: number; name: string; remark: string; is_default: boolean; inbound_ids: number[]; users: number; sub_profile_id?: number }
 

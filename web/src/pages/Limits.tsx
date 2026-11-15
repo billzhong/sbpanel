@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api, type Group, type Inbound, type Limit, type Node } from '../lib/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { api, type Group, type Inbound, type Limit, type LimitUser, type Node, type User } from '../lib/api'
 import { useAction } from '../lib/actions'
 import { bytes, date, parseSize } from '../lib/fmt'
-import { Badge, Button, Card, Checkbox, Confirm, Empty, Field, IconButton, ModalDialog, PageHeader, Presence, Segmented, Select, Skeleton, Switch, cx, useSticky } from '../ui/kit'
+import { Badge, Button, Card, CheckList, Checkbox, Confirm, Empty, Field, IconButton, ModalDialog, PageHeader, Presence, Segmented, Select, Skeleton, Switch, cx, useSticky } from '../ui/kit'
 import { IconEdit, IconPlus, IconTrash } from '../ui/icons'
+import { href } from '../lib/router'
 import { useT } from '../i18n'
 import { C } from '../i18n/common'
 import { D } from '../i18n/limits'
@@ -25,6 +27,7 @@ export function LimitsPage() {
   const groups = useQuery({ queryKey: ['groups'], queryFn: () => api<Group[]>('/groups') })
   const [editing, setEditing] = useState<Limit | 'new' | null>(null)
   const [deleting, setDeleting] = useState<Limit | null>(null)
+  const [usersOf, setUsersOf] = useState<Limit | null>(null)
   const delSticky = useSticky(deleting)
   const del = useAction({ fn: (id: number) => api(`/limits/${id}`, { method: 'DELETE' }), apply: true, success: t.deleted, invalidate: [['limits'], ['user']] })
   const toggle = useAction({
@@ -61,7 +64,10 @@ export function LimitsPage() {
                 <div><div className="text-xs text-subtle">{t.over}</div><div className={cx('mt-0.5 text-lg font-semibold tabular', l.limited > 0 && 'text-bad')}>{l.limited}</div></div>
                 <div><div className="text-xs text-subtle">{t.usedPeriod}</div><div className="mt-0.5 text-lg font-semibold tabular">{bytes(l.used)}</div></div>
               </div>
-              {l.overrides > 0 && <div className="mt-2 text-xs text-muted">{t.overrides(l.overrides)}</div>}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button size="sm" onPress={() => setUsersOf(l)}>{t.usersBtn(l.users)}</Button>
+                {l.overrides > 0 && <span className="text-xs text-muted">{t.overrides(l.overrides)}</span>}
+              </div>
               <ul className="mt-3 flex flex-col gap-1.5 border-t pt-3 text-[13px]">
                 {groupsOf.map(([node, ins]) => (
                   <li key={node} className="flex min-w-0 gap-2">
@@ -79,7 +85,10 @@ export function LimitsPage() {
         {(e, open) => <LimitForm isOpen={open} l={e === 'new' ? undefined : e} inbounds={inbounds.data ?? []} nodes={nodes.data ?? []} groups={groups.data ?? []} onClose={() => setEditing(null)} />}
       </Presence>
       <Confirm isOpen={!!deleting} onOpenChange={(v) => !v && setDeleting(null)} danger title={t.del} confirmLabel={t.del}
-        onConfirm={() => deleting && del.mutate(deleting.id)} body={t.deleteBody(delSticky?.name, delSticky?.limited ?? 0)} />
+        onConfirm={() => deleting && del.mutate(deleting.id)} body={t.deleteBody(delSticky?.name, delSticky?.users ?? 0, delSticky?.limited ?? 0)} />
+      <Presence value={usersOf}>
+        {(l, open) => <LimitUsers isOpen={open} l={l} onClose={() => setUsersOf(null)} />}
+      </Presence>
     </>
   )
 }
@@ -165,3 +174,68 @@ function LimitForm({ l, inbounds, nodes, groups, onClose, isOpen }: {
   )
 }
 
+
+/** Who a preset is attached to: usage, size, remove; attach it to more users. */
+function LimitUsers({ l, isOpen, onClose }: { l: Limit; isOpen: boolean; onClose: () => void }) {
+  const t = useT(D)
+  const c = useT(C)
+  const qc = useQueryClient()
+  const list = useQuery({ queryKey: ['limits', l.id, 'users'], queryFn: () => api<LimitUser[]>(`/limits/${l.id}/users`), enabled: isOpen })
+  const users = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/users'), enabled: isOpen })
+  const [adding, setAdding] = useState(false)
+  const [pick, setPick] = useState<number[]>([])
+  const on = new Set((list.data ?? []).map((u) => u.user_id))
+  const free = (users.data ?? []).filter((u) => !on.has(u.id))
+  const inv = [['limits'], ['user'], ['users']]
+  const batch = useAction({
+    fn: (v: { ids: number[]; attach: boolean }) => api('/users/batch', { method: 'POST', body: { ids: v.ids, action: 'set_limit', value: { rule_id: l.id, attach: v.attach } } }),
+    apply: true, invalidate: inv,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['limits', l.id, 'users'] }); setAdding(false); setPick([]) },
+  })
+  return (
+    <ModalDialog wide isOpen={isOpen} onOpenChange={(v) => !v && onClose()} title={t.usersTitle(l.name)}
+      footer={adding
+        ? <><Button onPress={() => { setAdding(false); setPick([]) }}>{c.cancel}</Button><Button variant="primary" isDisabled={!pick.length} isPending={batch.isPending} onPress={() => batch.mutate({ ids: pick, attach: true })}>{t.attachN(pick.length)}</Button></>
+        : <><Button onPress={onClose}>{c.close}</Button><Button variant="primary" isDisabled={!free.length} onPress={() => setAdding(true)}><IconPlus size={14} />{t.addUsers}</Button></>}>
+      {adding ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onPress={() => setPick(free.map((u) => u.id))}>{t.selectAll}</Button>
+            <Button size="sm" variant="ghost" onPress={() => setPick([])}>{t.clear}</Button>
+          </div>
+          <div className="max-h-[360px] overflow-y-auto">
+            <CheckList label={t.pickUsers} value={pick} onChange={setPick} empty={t.allHave}
+              options={free.map((u) => ({ id: u.id, label: u.username, hint: u.enabled ? undefined : c.disabled }))} />
+          </div>
+        </div>
+      ) : list.isLoading ? <Skeleton className="h-40" /> : (list.data ?? []).length === 0 ? <Empty title={t.noUsersOn} /> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13px] whitespace-nowrap">
+            <thead className="text-left text-xs text-subtle"><tr className="border-b"><th className="py-2 pr-3 font-medium">{t.colUser}</th><th className="w-[45%] px-3 py-2 font-medium">{t.colUsed}</th><th className="py-2 pl-3" /></tr></thead>
+            <tbody>
+              {list.data!.map((u) => {
+                const pct = u.traffic_limit ? Math.min(100, (u.used / u.traffic_limit) * 100) : 0
+                return (
+                  <tr key={u.user_id} className="border-b last:border-0">
+                    <td className="py-2 pr-3">
+                      <a className="font-medium hover:text-accent hover:underline" href={href('users', { id: u.user_id, tab: 'lines' })}>{u.username}</a>
+                      {u.override && <span className="ml-2"><Badge>{t.own}</Badge></span>}
+                      {u.exhausted && <span className="ml-2"><Badge tone="bad">{t.exhausted}</Badge></span>}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-overlay"><div className={cx('h-full rounded-full', u.exhausted ? 'bg-bad' : pct >= 80 ? 'bg-warn' : 'bg-accent')} style={{ width: `${u.exhausted ? 100 : pct}%` }} /></div>
+                        <span className="w-32 text-right tabular">{t.ofLimit(bytes(u.used), bytes(u.traffic_limit))}</span>
+                      </div>
+                    </td>
+                    <td className="py-2 pl-3 text-right"><Button size="sm" variant="ghost" onPress={() => batch.mutate({ ids: [u.user_id], attach: false })}>{t.remove}</Button></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ModalDialog>
+  )
+}

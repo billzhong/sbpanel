@@ -172,6 +172,7 @@ func (m *Master) routes() http.Handler {
 	mux.HandleFunc("GET /api/limits", a(m.apiLimits))
 	mux.HandleFunc("POST /api/limits", a(m.apiCreateLimit))
 	mux.HandleFunc("PATCH /api/limits/{id}", a(m.apiUpdateLimit))
+	mux.HandleFunc("GET /api/limits/{id}/users", a(m.apiLimitUsers))
 	mux.HandleFunc("DELETE /api/limits/{id}", a(m.apiDeleteLimit))
 
 	// subscriptions (public, token in path); /sub/ keeps 3x-ui links working

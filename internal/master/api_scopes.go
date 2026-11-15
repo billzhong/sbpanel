@@ -106,6 +106,7 @@ var routeScopes = map[string]string{
 	"GET /api/limits":                   ScopeRead,
 	"POST /api/limits":                  ScopeUsersWrite,
 	"PATCH /api/limits/{id}":            ScopeUsersWrite,
+	"GET /api/limits/{id}/users":        ScopeRead,
 	"DELETE /api/limits/{id}":           ScopeUsersWrite,
 
 	// subscription-page themes

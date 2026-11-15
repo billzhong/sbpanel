@@ -48,6 +48,11 @@ func (m *Master) applyBatch(req batchReq) (int64, error) {
 	var num float64
 	var groups []int64
 	var snaps []userSnap
+	var lim struct {
+		RuleID       int64  `json:"rule_id"`
+		Attach       bool   `json:"attach"`
+		TrafficLimit *int64 `json:"traffic_limit"`
+	}
 	switch req.Action {
 	case "restore":
 		if err := json.Unmarshal(req.Value, &snaps); err != nil {
@@ -60,6 +65,18 @@ func (m *Master) applyBatch(req batchReq) (int64, error) {
 	case "set_groups":
 		if err := json.Unmarshal(req.Value, &groups); err != nil {
 			return 0, fmt.Errorf("value must be an array of group ids")
+		}
+	case "set_limit":
+		if err := json.Unmarshal(req.Value, &lim); err != nil || lim.RuleID <= 0 {
+			return 0, fmt.Errorf("value must be {\"rule_id\": id, \"traffic_limit\": bytes|null}")
+		}
+		if lim.TrafficLimit != nil && *lim.TrafficLimit < 0 {
+			return 0, fmt.Errorf("Traffic limit must not be negative")
+		}
+		var n int
+		m.db.QueryRow(`SELECT COUNT(*) FROM traffic_rules WHERE id=?`, lim.RuleID).Scan(&n)
+		if n == 0 {
+			return 0, fmt.Errorf("Traffic limit not found")
 		}
 	case "enable", "disable", "reset_usage", "delete":
 	default:
@@ -130,6 +147,18 @@ func (m *Master) applyBatch(req batchReq) (int64, error) {
 			}
 			res = rowsN(len(req.IDs))
 		}
+	case "set_limit":
+		// attach (traffic_limit 0 / absent = the preset's size) or take off
+		size := int64(0)
+		if lim.TrafficLimit != nil {
+			size = *lim.TrafficLimit
+		}
+		for _, id := range req.IDs {
+			if err = attachLimit(tx, id, lim.RuleID, lim.Attach, size); err != nil {
+				break
+			}
+		}
+		res = rowsN(len(req.IDs))
 	case "delete":
 		tx.Exec(`DELETE FROM user_groups WHERE user_id IN (`+ph+`)`, args...)
 		tx.Exec(`DELETE FROM online_ip WHERE user_id IN (`+ph+`)`, args...)
@@ -174,7 +203,7 @@ func (m *Master) apiBatchUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var undo []userSnap
-	if req.Action != "delete" && req.Action != "set_groups" && req.Action != "restore" {
+	if req.Action != "delete" && req.Action != "set_groups" && req.Action != "restore" && req.Action != "set_limit" {
 		undo = m.snapshot(req.IDs)
 	}
 	n, err := m.applyBatch(req)

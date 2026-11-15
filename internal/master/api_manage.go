@@ -531,6 +531,9 @@ type userOut struct {
 	GroupIDs      []int64 `json:"group_ids"`
 	LastOnline    int64   `json:"last_online"`
 	ProfileID     int64   `json:"sub_profile_id"`
+	// traffic limit presets on the user
+	Limits     []userLimitSet `json:"limits"`
+	LimitedOut int            `json:"limits_exhausted"` // presets used up this period
 }
 
 const userCols = `id, username, sub_token, uuid, password, status, enabled, traffic_limit, expire_at, reset_strategy, note,
@@ -592,7 +595,12 @@ func (m *Master) apiUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		rows.Close()
 	}
+	ul := m.allUserLimits()
 	for i := range out {
+		out[i].Limits, out[i].LimitedOut = ul.sets[out[i].ID], ul.out[out[i].ID]
+		if out[i].Limits == nil {
+			out[i].Limits = []userLimitSet{}
+		}
 		out[i].OnlineIPs = len(on[out[i].ID])
 		out[i].LastOnline = lastOn[out[i].ID]
 		if out[i].OnlineIPs > 0 {
@@ -640,6 +648,11 @@ func (m *Master) apiUser(w http.ResponseWriter, r *http.Request) {
 		_, ips[i].Online = live[ips[i].IP]
 	}
 	us[0].OnlineIPs = len(live)
+	ul := m.allUserLimits()
+	us[0].Limits, us[0].LimitedOut = ul.sets[id], ul.out[id]
+	if us[0].Limits == nil {
+		us[0].Limits = []userLimitSet{}
+	}
 	us[0].GroupIDs = m.userGroupIDs(id)
 	if us[0].GroupIDs == nil {
 		us[0].GroupIDs = []int64{}
@@ -661,6 +674,8 @@ type userReq struct {
 	SpeedDown     *int64   `json:"speed_down"`
 	GroupIDs      *[]int64 `json:"group_ids"`
 	ProfileID     *int64   `json:"sub_profile_id"`
+	// traffic limit presets on the user (replaces the set); omitted = unchanged, none on create
+	Limits *[]userLimitSet `json:"limits"`
 }
 
 func (req *userReq) check() error {
@@ -714,6 +729,9 @@ func (m *Master) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		groups = *req.GroupIDs
 	}
 	m.setUserGroups(id, groups)
+	if req.Limits != nil {
+		setUserLimits(m.db, id, *req.Limits)
+	}
 	if req.ProfileID != nil && checkProfileID(m.db, *req.ProfileID) == nil {
 		m.db.Exec(`UPDATE users SET sub_profile_id=? WHERE id=?`, *req.ProfileID, id)
 	}
@@ -756,6 +774,12 @@ func (m *Master) apiUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.GroupIDs != nil {
 		m.setUserGroups(id, *req.GroupIDs)
+	}
+	if req.Limits != nil {
+		if err := setUserLimits(m.db, id, *req.Limits); err != nil {
+			writeErr(w, 400, L(reqLang(r), err.Error()))
+			return
+		}
 	}
 	if req.ProfileID != nil {
 		if err := checkProfileID(m.db, *req.ProfileID); err != nil {

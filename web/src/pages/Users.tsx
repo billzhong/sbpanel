@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Dialog, DialogTrigger, Popover } from 'react-aria-components'
-import { api, type User, type TopRow, type SeriesResp, type Group, type SubInfo, type UserLimit, type InboundUse } from '../lib/api'
+import { api, type User, type TopRow, type SeriesResp, type Group, type SubInfo, type UserLimit, type InboundUse, type Limit } from '../lib/api'
 import { D as LD } from '../i18n/limits'
 import { bytes, date, dateTime, parseSize, ago, expiresIn, GB, DAY } from '../lib/fmt'
 import { useRoute, go, replace, withParams, href } from '../lib/router'
@@ -184,6 +184,7 @@ export function UsersPage() {
   const [deleting, setDeleting] = useState<number[] | null>(null)
   const [prompt, setPrompt] = useState<{ kind: 'days' | 'gb'; ids: number[] } | null>(null)
   const [groupsFor, setGroupsFor] = useState<number[] | null>(null)
+  const [limitsFor, setLimitsFor] = useState<number[] | null>(null)
   const byId = useMemo(() => new Map(all.map((u) => [u.id, u])), [all])
   const who = (ids: number[]) => (ids.length === 1 ? byId.get(ids[0])?.username ?? t.user : t.nUsers(ids.length))
 
@@ -214,6 +215,7 @@ export function UsersPage() {
       case 'toggle': if (u) act(ids, u.enabled ? 'disable' : 'enable'); break
       case 'kick': api(`/users/${ids[0]}/kick`, { method: 'POST' }).then(() => toast('good', t.kicked(who(ids))), (e) => toast('bad', (e as Error).message)); break
       case 'groups': setGroupsFor(ids); break
+      case 'limits': setLimitsFor(ids); break
       case 'delete': setDeleting(ids); break
     }
   }
@@ -401,6 +403,10 @@ export function UsersPage() {
         {(ids, open) => <SetGroups ids={ids} isOpen={open} groups={groups.data ?? []} users={byId} onClose={() => setGroupsFor(null)}
           onSubmit={(gids) => { setGroupsFor(null); run(ids, 'set_groups', gids, t.groupsSet(who(ids))).catch(() => {}) }} />}
       </Presence>
+      <Presence value={limitsFor}>
+        {(ids, open) => <SetLimits ids={ids} isOpen={open} onClose={() => setLimitsFor(null)}
+          onSubmit={(v) => { setLimitsFor(null); run(ids, 'set_limit', v, tr(LD).applied).then(() => { qc.invalidateQueries({ queryKey: ['limits'] }); qc.invalidateQueries({ queryKey: ['user'] }) }, () => {}) }} />}
+      </Presence>
     </>
   )
 }
@@ -454,6 +460,7 @@ function BatchBar({ ids, open, onClear, onAction }: { ids: number[]; open: boole
           items={[{ id: 'g10', label: '+10 GB' }, { id: 'g50', label: '+50 GB' }, { id: 'g100', label: '+100 GB' }, { id: 'g500', label: '+500 GB' }, 'sep', { id: 'gcustom', label: t.custom }]} />
         <Button size="sm" variant="ghost" onPress={() => onAction('reset')}>{t.resetUsage}</Button>
         <Button size="sm" variant="ghost" onPress={() => onAction('groups')}>{t.setGroups}</Button>
+        <Button size="sm" variant="ghost" onPress={() => onAction('limits')}>{tr(LD).batchBtn}</Button>
         <Button size="sm" variant="ghost" onPress={() => onAction('copy')}>{t.copySub}</Button>
         <Button size="sm" variant="danger" onPress={() => onAction('delete')}>{t.delete}</Button>
       </div>
@@ -505,7 +512,7 @@ const presets = [
   { id: 'free', get label() { return tr(D).pFree }, get hint() { return tr(D).pFreeHint }, limit: '', unit: 'GB', days: 0, reset: 'none' },
 ] as const
 
-type FormState = { username: string; limit: string; unit: 'GB' | 'TB'; exp: string; reset: string; devices: string; up: string; down: string; note: string; gids: number[]; profile: string }
+type FormState = { username: string; limit: string; unit: 'GB' | 'TB'; exp: string; reset: string; devices: string; up: string; down: string; note: string; gids: number[]; profile: string; lims: { id: number; size: string }[] }
 
 /** Create (u undefined) or edit a user. Creating ends on a "created" view with the subscription link. */
 function UserForm({ u, groups, users, isOpen, onClose, onOpen }: { u?: User; groups: Group[]; users: User[]; isOpen: boolean; onClose: () => void; onOpen?: (id: number) => void }) {
@@ -519,6 +526,7 @@ function UserForm({ u, groups, users, isOpen, onClose, onOpen }: { u?: User; gro
       exp: u?.expire_at ? ymd(new Date(u.expire_at * 1000)) : '', reset: u?.reset_strategy || 'none',
       devices: u?.device_limit ? String(u.device_limit) : '', up: toMbps(u?.speed_up ?? 0), down: toMbps(u?.speed_down ?? 0),
       note: u?.note ?? '', gids: u?.group_ids ?? groups.filter((g) => g.is_default).map((g) => g.id), profile: String(u?.sub_profile_id ?? 0),
+      lims: (u?.limits ?? []).map((l) => ({ id: l.id, size: l.traffic_limit ? String(+(l.traffic_limit / GB).toFixed(2)) : '' })),
     }
   }, [u, groups])
   const [f, setF] = useState<FormState>(init)
@@ -543,7 +551,8 @@ function UserForm({ u, groups, users, isOpen, onClose, onOpen }: { u?: User; gro
   const devN = f.devices.trim() ? Number(f.devices) : 0
   const devErr = !Number.isInteger(devN) || devN < 0 ? t.nonNegInt : ''
   const dirty = !created && JSON.stringify(f) !== initial
-  const valid = !!f.username && !nameErr && !Number.isNaN(limitBytes) && !devErr
+  const limSets = f.lims.map((l) => ({ id: l.id, traffic_limit: l.size.trim() ? parseSize(l.size) : 0 }))
+  const valid = !!f.username && !nameErr && !Number.isNaN(limitBytes) && !devErr && limSets.every((l) => !Number.isNaN(l.traffic_limit))
 
   const applyPreset = (id: string) => {
     const p = presets.find((x) => x.id === id)!
@@ -556,7 +565,7 @@ function UserForm({ u, groups, users, isOpen, onClose, onOpen }: { u?: User; gro
     setBusy(true); setErr('')
     const body = {
       username: f.username, traffic_limit: limitBytes, expire_at: f.exp ? Math.floor(new Date(f.exp + 'T23:59:59').getTime() / 1000) : 0,
-      reset_strategy: f.reset, device_limit: devN, speed_up: fromMbps(f.up), speed_down: fromMbps(f.down), note: f.note, group_ids: f.gids, sub_profile_id: Number(f.profile),
+      reset_strategy: f.reset, device_limit: devN, speed_up: fromMbps(f.up), speed_down: fromMbps(f.down), note: f.note, group_ids: f.gids, sub_profile_id: Number(f.profile), limits: limSets,
     }
     try {
       let id: number
@@ -636,6 +645,7 @@ function UserForm({ u, groups, users, isOpen, onClose, onOpen }: { u?: User; gro
           options={groups.map((g) => ({ id: g.id, label: g.name, hint: t.nInbounds(g.inbound_ids.length) }))}
           empty={t.noGroupsYet} />
         <ProfileSelect value={f.profile} onChange={(v) => set('profile', v)} />
+        <LimitPicker value={f.lims} onChange={(v) => set('lims', v)} />
         <button type="submit" hidden />
       </form>
     </ModalDialog>
@@ -907,10 +917,10 @@ function Lines({ d }: { d: UserDetail }) {
 
 function LimitRow({ uid, l }: { uid: number; l: UserLimit }) {
   const t = useT(LD)
-  const [size, setSize] = useState(l.override && l.traffic_limit ? String(+(l.traffic_limit / GB).toFixed(2)) : '')
+  const [size, setSize] = useState(l.override ? String(+(l.traffic_limit / GB).toFixed(2)) : '')
   const set = useAction({
-    fn: (body: { traffic_limit?: number | null; reset_usage?: boolean }) => api(`/users/${uid}/limits/${l.id}`, { method: 'PUT', body }),
-    apply: true, success: t.ownSaved, invalidate: [['user', uid], ['limits']],
+    fn: (body: { attach?: boolean; traffic_limit?: number; reset_usage?: boolean }) => api(`/users/${uid}/limits/${l.id}`, { method: 'PUT', body }),
+    apply: true, success: t.ownSaved, invalidate: [['user', uid], ['users'], ['limits']],
   })
   const pct = l.traffic_limit ? Math.min(100, (l.used / l.traffic_limit) * 100) : 0
   const v = parseSize(size)
@@ -921,11 +931,11 @@ function LimitRow({ uid, l }: { uid: number; l: UserLimit }) {
         {l.exhausted && <Badge tone="bad">{t.exhausted}</Badge>}
         {l.override && <Badge tone="accent">{t.own}</Badge>}
         <span className="flex-1" />
-        <span className="text-[13px] tabular">{l.traffic_limit ? t.ofLimit(bytes(l.used), bytes(l.traffic_limit)) : bytes(l.used)}</span>
+        <span className="text-[13px] tabular">{t.ofLimit(bytes(l.used), bytes(l.traffic_limit))}</span>
       </div>
-      {l.traffic_limit > 0 && <Progress value={l.exhausted ? 100 : pct} />}
+      <Progress value={l.exhausted ? 100 : pct} />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-        <span>{l.traffic_limit ? (l.period === 'month' ? t.resetsOn(date(l.next_reset)) : t.resetsCycle) : t.unlimitedForUser}</span>
+        <span>{l.period === 'month' ? t.resetsOn(date(l.next_reset)) : t.resetsCycle}</span>
         {l.override && <span>{t.def(bytes(l.default_limit))}</span>}
         <span className="flex-1" />
         <DialogTrigger>
@@ -936,17 +946,77 @@ function LimitRow({ uid, l }: { uid: number; l: UserLimit }) {
                 <Field label={t.ownLimit} value={size} onChange={setSize} inputMode="decimal" placeholder={String(+(l.default_limit / GB).toFixed(2))}
                   description={size.trim() && v > 0 ? `= ${bytes(v)}` : t.def(bytes(l.default_limit))} autoFocus />
                 <div className="flex flex-wrap gap-1.5">
-                  <Button size="sm" variant="primary" isDisabled={!(v > 0)} onPress={() => { set.mutate({ traffic_limit: v }); close() }}>{t.saveOwn}</Button>
-                  <Button size="sm" onPress={() => { set.mutate({ traffic_limit: 0 }); close() }}>{t.noLimit}</Button>
-                  {l.override && <Button size="sm" onPress={() => { setSize(''); set.mutate({ traffic_limit: null }); close() }}>{t.useDefault}</Button>}
+                  <Button size="sm" variant="primary" isDisabled={!(v > 0)} onPress={() => { set.mutate({ attach: true, traffic_limit: v }); close() }}>{t.saveOwn}</Button>
+                  {l.override && <Button size="sm" onPress={() => { setSize(''); set.mutate({ attach: true, traffic_limit: 0 }); close() }}>{t.useDefault}</Button>}
                 </div>
               </>}
             </Dialog>
           </Popover>
         </DialogTrigger>
-        {l.used > 0 && <Button size="sm" variant="ghost" onPress={() => set.mutate({ reset_usage: true }, { onSuccess: () => {} })}>{t.resetUse}</Button>}
+        {l.used > 0 && <Button size="sm" variant="ghost" onPress={() => set.mutate({ reset_usage: true })}>{t.resetUse}</Button>}
+        <Button size="sm" variant="ghost" onPress={() => set.mutate({ attach: false })}>{t.remove}</Button>
       </div>
     </li>
+  )
+}
+
+/** Batch: attach a preset to (or remove it from) the selected users. */
+function SetLimits({ ids, isOpen, onClose, onSubmit }: { ids: number[]; isOpen: boolean; onClose: () => void; onSubmit: (v: { rule_id: number; attach: boolean; traffic_limit: number }) => void }) {
+  const t = useT(LD)
+  const c = useT(D)
+  const limits = useQuery({ queryKey: ['limits'], queryFn: () => api<Limit[]>('/limits'), enabled: isOpen })
+  const [rid, setRid] = useState('')
+  const [mode, setMode] = useState<'attach' | 'remove'>('attach')
+  const [size, setSize] = useState('')
+  const v = size.trim() ? parseSize(size) : 0
+  const ok = !!rid && (mode === 'remove' || v >= 0)
+  const sel = (limits.data ?? []).find((l) => String(l.id) === rid)
+  return (
+    <ModalDialog isOpen={isOpen} onOpenChange={(x) => !x && onClose()} title={t.batchTitle(ids.length)}
+      footer={<><Button onPress={onClose}>{c.cancel}</Button><Button variant={mode === 'remove' ? 'danger' : 'primary'} isDisabled={!ok}
+        onPress={() => onSubmit({ rule_id: Number(rid), attach: mode === 'attach', traffic_limit: mode === 'attach' ? v : 0 })}>{c.applyTo(ids.length)}</Button></>}>
+      {limits.data && limits.data.length === 0 ? <Empty title={t.noPresets} action={<a className="text-[13px] text-accent hover:underline" href={href('limits')}>{t.makePreset}</a>} /> : (
+        <div className="flex flex-col gap-4">
+          <Select label={t.preset} value={rid} onChange={setRid}
+            options={(limits.data ?? []).map((l) => ({ id: String(l.id), label: `${l.name} · ${bytes(l.traffic_limit)}` }))} />
+          <Segmented label={t.preset} value={mode} onChange={setMode} options={[{ id: 'attach', label: t.doAttach }, { id: 'remove', label: t.doRemove }]} />
+          {mode === 'attach' && <Field label={t.customOpt} value={size} onChange={setSize} inputMode="decimal" placeholder={sel ? String(+(sel.traffic_limit / GB).toFixed(2)) : ''}
+            description={size.trim() && v > 0 ? `= ${bytes(v)}` : sel ? t.def(bytes(sel.traffic_limit)) : undefined} isInvalid={Number.isNaN(v)} errorMessage={t.limitBad} />}
+        </div>
+      )}
+    </ModalDialog>
+  )
+}
+
+/** User form: which presets apply (none by default), each with an optional custom size. */
+function LimitPicker({ value, onChange }: { value: { id: number; size: string }[]; onChange: (v: { id: number; size: string }[]) => void }) {
+  const t = useT(LD)
+  const limits = useQuery({ queryKey: ['limits'], queryFn: () => api<Limit[]>('/limits') })
+  const ls = limits.data ?? []
+  if (!limits.data) return null
+  return (
+    <fieldset className="flex min-w-0 flex-col gap-2">
+      <legend className="mb-1 text-[13px] font-medium text-subtle">{t.formTitle}</legend>
+      <div className="text-xs text-muted">{t.formHint}</div>
+      {ls.length === 0 ? <div className="text-[13px] text-muted">{t.noPresets} · <a className="text-accent hover:underline" href={href('limits')}>{t.makePreset}</a></div> : (
+        <div className="flex flex-col gap-2 rounded-[10px] border bg-base p-3">
+          {ls.map((l) => {
+            const cur = value.find((x) => x.id === l.id)
+            const v = cur?.size.trim() ? parseSize(cur.size) : 0
+            return (
+              <div key={l.id} className="flex flex-col gap-1.5">
+                <Checkbox isSelected={!!cur} onChange={(on) => onChange(on ? [...value, { id: l.id, size: '' }] : value.filter((x) => x.id !== l.id))}>
+                  <span>{l.name}<span className="ml-2 text-xs text-muted">{bytes(l.traffic_limit)} · {l.period === 'month' ? t.monthly(l.reset_day) : t.withCycle}</span></span>
+                </Checkbox>
+                {cur && <div className="pl-6"><Field hideLabel label={t.formSize} value={cur.size} placeholder={`${t.formSize}: ${+(l.traffic_limit / GB).toFixed(2)} GB`} inputMode="decimal"
+                  onChange={(s) => onChange(value.map((x) => (x.id === l.id ? { ...x, size: s } : x)))}
+                  isInvalid={Number.isNaN(v)} errorMessage={t.limitBad} description={cur.size.trim() && v > 0 ? `= ${bytes(v)}` : undefined} /></div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </fieldset>
   )
 }
 

@@ -89,7 +89,7 @@ export function useApplyTracker() {
 // ---- user batch -------------------------------------------------------------
 
 export type UserSnap = { id: number; enabled: boolean; expire_at: number; traffic_limit: number; used_up: number; used_down: number }
-export type BatchAction = 'enable' | 'disable' | 'extend_days' | 'add_traffic' | 'reset_usage' | 'set_groups' | 'delete' | 'restore'
+export type BatchAction = 'enable' | 'disable' | 'extend_days' | 'add_traffic' | 'reset_usage' | 'set_groups' | 'set_limit' | 'delete' | 'restore'
 type BatchResp = { affected: number; undo?: UserSnap[] }
 
 export const snapOf = (u: User): UserSnap => ({ id: u.id, enabled: u.enabled, expire_at: u.expire_at, traffic_limit: u.traffic_limit, used_up: u.used_up, used_down: u.used_down })
