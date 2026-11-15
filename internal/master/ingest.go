@@ -39,6 +39,7 @@ func (m *Master) ingest(nodeID string, r *pb.TrafficReport) (dup bool, err error
 
 	type ud struct{ up, down int64 }
 	perUser := map[int64]*ud{}
+	perIn := map[limitKey]*[2]int64{}
 	for _, u := range r.Users {
 		if u.User == probeUser { // connectivity probe (older nodes still report it)
 			continue
@@ -63,7 +64,17 @@ func (m *Master) ingest(nodeID string, r *pb.TrafficReport) (dup bool, err error
 			}
 			a.up += u.Up
 			a.down += u.Down
+			k := limitKey{uid, u.Inbound}
+			if perIn[k] == nil {
+				perIn[k] = &[2]int64{}
+			}
+			perIn[k][0] += u.Up
+			perIn[k][1] += u.Down
 		}
+	}
+	crossed, err := m.countLimits(tx, nodeID, ws, perIn)
+	if err != nil {
+		return false, err
 	}
 	for uid, a := range perUser {
 		if _, err := tx.Exec(`UPDATE users SET used_up=used_up+?, used_down=used_down+?, life_up=life_up+?, life_down=life_down+? WHERE id=?`,
@@ -98,6 +109,7 @@ func (m *Master) ingest(nodeID string, r *pb.TrafficReport) (dup bool, err error
 	if len(perUser) > 0 {
 		m.checkQuota(perUser2ids(perUser))
 	}
+	m.limitsCrossed(crossed)
 	return false, nil
 }
 
@@ -152,6 +164,7 @@ func (m *Master) policyLoop(stop <-chan struct{}) {
 			m.reconcile()
 		}
 		m.resetUsage(time.Now())
+		m.refreshLimitPeriods(time.Now())
 		m.checkNodeQuota(time.Now())
 		if time.Since(lastClean) > time.Hour {
 			lastClean = time.Now()

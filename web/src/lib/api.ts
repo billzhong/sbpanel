@@ -69,6 +69,18 @@ export type User = {
 
 export type Group = { id: number; name: string; remark: string; is_default: boolean; inbound_ids: number[]; users: number; sub_profile_id?: number }
 
+export type Limit = {
+  id: number; name: string; note: string; traffic_limit: number; period: 'user' | 'month'; reset_day: number; enabled: boolean
+  inbound_ids: number[]; created_at: number; period_start: number; next_reset: number; users: number; limited: number; used: number; overrides: number
+}
+
+export type UserLimit = {
+  id: number; name: string; traffic_limit: number; default_limit: number; override: boolean; up: number; down: number; used: number
+  exhausted: boolean; period: 'user' | 'month'; next_reset: number; inbound_ids: number[]
+}
+
+export type InboundUse = { inbound_id: number; node: string; tag: string; remark: string; type: string; up: number; down: number; blocked: boolean }
+
 export type Host = {
   id: number; inbound_id: number; remark: string; address: string; port: number; sni: string; host: string; path: string
   alpn: string; fingerprint: string; allow_insecure: boolean; sort: number; enabled: boolean

@@ -961,6 +961,7 @@ func (m *Master) apiPreviewSubTheme(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		u.Blocked = m.blockedInbounds(u.ID)
 		data = m.subData(r, u, es, t)
 		data.Theme.Settings = m.themeSettings(t, override)
 	} else {

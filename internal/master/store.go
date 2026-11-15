@@ -166,6 +166,22 @@ var migrations = []string{
 	DELETE FROM dim_5m WHERE user_id NOT IN (SELECT id FROM users)`,
 	// v9: where a node's traffic exits (ISO 3166 code); inbounds may override it with "_region"
 	`ALTER TABLE nodes ADD COLUMN region TEXT NOT NULL DEFAULT ''`,
+	// v10: traffic limits on sets of inbounds (limits.go) and per-user, per-inbound usage
+	`CREATE TABLE traffic_rules(id INTEGER PRIMARY KEY, name TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+	  traffic_limit INTEGER NOT NULL, period TEXT NOT NULL DEFAULT 'user', reset_day INTEGER NOT NULL DEFAULT 1,
+	  cur_period INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
+	CREATE TABLE traffic_rule_inbounds(rule_id INTEGER NOT NULL, inbound_id INTEGER NOT NULL, PRIMARY KEY(rule_id, inbound_id)) WITHOUT ROWID;
+	CREATE INDEX traffic_rule_inbounds_in ON traffic_rule_inbounds(inbound_id);
+	CREATE TABLE user_rule_limits(user_id INTEGER NOT NULL, rule_id INTEGER NOT NULL, traffic_limit INTEGER NOT NULL,
+	  PRIMARY KEY(user_id, rule_id)) WITHOUT ROWID;
+	CREATE TABLE rule_usage(rule_id INTEGER NOT NULL, user_id INTEGER NOT NULL, period INTEGER NOT NULL,
+	  up INTEGER NOT NULL DEFAULT 0, down INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(rule_id, user_id, period)) WITHOUT ROWID;
+	CREATE TABLE inbound_usage(user_id INTEGER NOT NULL, inbound_id INTEGER NOT NULL,
+	  up INTEGER NOT NULL DEFAULT 0, down INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id, inbound_id)) WITHOUT ROWID;
+	INSERT INTO inbound_usage(user_id, inbound_id, up, down)
+	  SELECT t.user_id, i.id, SUM(t.up), SUM(t.down) FROM traffic_hour t
+	  JOIN inbounds i ON i.node_id=t.node_id AND i.tag=t.inbound JOIN users u ON u.id=t.user_id
+	  WHERE t.ts >= u.last_reset_at - u.last_reset_at % 3600 GROUP BY t.user_id, i.id`,
 }
 
 func migrate(db *sql.DB) error {

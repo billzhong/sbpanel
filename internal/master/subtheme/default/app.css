@@ -165,3 +165,21 @@ svg { flex: none; }
 .prof .meta { grid-column: 1 / -1; margin: 0; font-size: 12px; }
 .psel { height: 34px; min-width: 0; padding: 0 30px 0 12px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--base); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
 .psel:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* usage by line + line limits */
+.lims, .uses { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.lims { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.lims li, .uses li { min-width: 0; }
+.row1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.row1 .sp { flex: 1; }
+.row1 .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.row1 .num { flex: none; font-size: 13.5px; font-weight: 600; }
+.row1 .badge { height: 20px; padding: 0 8px; font-size: 11.5px; }
+.lim .meta { margin-top: 4px; font-size: 12.5px; }
+.lim .lns { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar { height: 6px; border-radius: 999px; background: var(--overlay); overflow: hidden; margin-top: 6px; }
+.bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .6s cubic-bezier(.16,1,.3,1); }
+.bar.soft i { background: color-mix(in oklab, var(--accent) 55%, var(--overlay)); }
+.bar.warn i { background: var(--warn); } .bar.bad i { background: var(--bad); }
+.uses .off .nm { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--hl-high); }
+.uses + .btn { margin-top: 12px; }

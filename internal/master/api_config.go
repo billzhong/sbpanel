@@ -462,7 +462,7 @@ var publicSettings = map[string]string{
 	"sub_update_hours": "12",
 	"tg_chat":          "",
 	"webhook_url":      "",
-	"notify_events":    "node_offline,quota_exceeded,user_expired,node_quota,apply_failed",
+	"notify_events":    "node_offline,quota_exceeded,limit_exceeded,user_expired,node_quota,apply_failed",
 	"device_policy":    "reject",
 	// subscription page (public data for themes)
 	"sub_announcement":  "",

@@ -122,6 +122,8 @@ type Endpoint struct {
 	CC         string // tuic congestion control
 	Node       string
 	Region     string // ISO code of where traffic exits ("" = unknown)
+	Inbound    int64  // panel inbound id (usage and limits)
+	Line       string // "<node> <REGION> · <inbound>" before host remarks
 }
 
 // Meta is per-request context available to templates.

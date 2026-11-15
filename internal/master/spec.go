@@ -159,7 +159,8 @@ func buildSpec(db *sql.DB, nodeID string) (*pb.NodeSpec, error) {
 		var users []specUser
 		urows, err := db.Query(`SELECT DISTINCT u.id, u.uuid, u.password, u.flow, u.speed_up, u.speed_down, u.device_limit
 			FROM users u JOIN user_groups ug ON ug.user_id=u.id JOIN group_inbounds gi ON gi.group_id=ug.group_id
-			WHERE gi.inbound_id=? AND u.enabled=1 AND u.status='active' ORDER BY u.id`, in.id)
+			WHERE gi.inbound_id=? AND u.enabled=1 AND u.status='active'
+			AND u.id NOT IN (`+limitedUsersSQL+`) ORDER BY u.id`, in.id, in.id)
 		if err != nil {
 			return nil, err
 		}

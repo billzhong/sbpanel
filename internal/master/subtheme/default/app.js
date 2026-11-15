@@ -55,6 +55,9 @@
       noNodes: 'No nodes available', unavailable: 'Your subscription is unavailable right now. Nodes come back once it is renewed or the data is reset.',
       allN: function (n) { return 'All ' + n; }, nodes: 'Nodes', nodeCount: function (n) { return String(n); },
       allCopied: function (n) { return 'Copied all ' + n + ' nodes'; }, copyAll: 'Copy all', byProto: 'Filter by protocol',
+      lines: 'Usage by line', lineLimits: 'Line limits', noUse: 'No traffic yet this period', exhausted: 'Used up',
+      leftOf: function (a, b) { return a + ' left of ' + b; }, noLineLimit: 'No limit for you', showAllN: function (n) { return 'Show all ' + n; },
+      pausedUntil: function (d) { return 'Paused until ' + d + ', when it resets'; }, pausedLine: 'Paused: its line limit is used up',
       help: 'Help & support', footer: function (t) { return 'Powered by sbpanel · Updated ' + t; },
       loadFail: 'Couldn’t load the subscription. Try again later.', language: 'Language', other: '中文', otherLang: 'zh'
     },
@@ -80,6 +83,9 @@
       noNodes: '暂无可用节点', unavailable: '订阅当前不可用，续费或重置流量后节点会自动恢复。',
       allN: function (n) { return '全部 ' + n; }, nodes: '节点', nodeCount: function (n) { return n + ' 个'; },
       allCopied: function (n) { return '已复制全部 ' + n + ' 个节点'; }, copyAll: '全部', byProto: '按协议筛选',
+      lines: '各线路用量', lineLimits: '线路限额', noUse: '本周期还没有使用', exhausted: '已用尽',
+      leftOf: function (a, b) { return '剩余 ' + a + ' / ' + b; }, noLineLimit: '对你不限量', showAllN: function (n) { return '显示全部 ' + n + ' 条'; },
+      pausedUntil: function (d) { return '已暂停，' + d + ' 重置后恢复'; }, pausedLine: '已暂停：所属线路限额已用尽',
       help: '帮助与支持', footer: function (t) { return '由 sbpanel 提供 · 更新于 ' + t; },
       loadFail: '订阅加载失败，请稍后重试。', language: '语言', other: 'English', otherLang: 'en'
     }
@@ -294,6 +300,39 @@
       chips.length ? h('div', { cls: 'tools', role: 'group', 'aria-label': t('byProto') }, chips) : null, list);
   }
 
+  // Per-line usage this period, with the traffic limits (e.g. a home line) on top.
+  function lines(d) {
+    var us = d.usage || [], ls = d.limits || [];
+    if (!us.length && !ls.length) return null;
+    function bar(pct, lvl) { return h('div', { cls: 'bar ' + (lvl || ''), role: 'presentation' }, h('i', { style: 'width:' + Math.max(pct, pct > 0 ? 2 : 0).toFixed(1) + '%' })); }
+    var lim = ls.map(function (l) {
+      var pct = l.total ? Math.min(100, l.used / l.total * 100) : 0, lvl = l.exhausted || pct >= 90 ? 'bad' : pct >= 75 ? 'warn' : '';
+      var sub = l.exhausted ? (l.next_at ? t('pausedUntil', date(l.next_at).slice(5)) : t('exhausted'))
+        : l.total ? t('leftOf', bytes(Math.max(0, l.total - l.used)), bytes(l.total)) + (l.next_at ? ' · ' + t('resetsOn', date(l.next_at).slice(5)) : '') : t('noLineLimit');
+      return h('li', { cls: 'lim' + (l.exhausted ? ' off' : '') },
+        h('div', { cls: 'row1' }, h('b', { text: l.name }), l.exhausted ? h('span', { cls: 'badge bad', text: t('exhausted') }) : null, h('span', { cls: 'sp' }),
+          h('span', { cls: 'num', text: bytes(l.used) + (l.total ? ' / ' + bytes(l.total) : '') })),
+        l.total ? bar(pct, lvl) : null,
+        h('div', { cls: 'meta', text: sub }),
+        l.lines && l.lines.length ? h('div', { cls: 'meta lns', text: l.lines.join(' · ') }) : null);
+    });
+    var max = us.reduce(function (a, x) { return Math.max(a, x.used); }, 0), used = us.filter(function (x) { return x.used > 0 || x.exhausted; });
+    var shown = used.slice(0, 6), more = used.length - shown.length;
+    var list = h('ul', { cls: 'uses' });
+    function row(x) {
+      return h('li', { cls: x.exhausted ? 'off' : '', title: x.exhausted ? t('pausedLine') : '' },
+        h('div', { cls: 'row1' }, h('span', { cls: 'tag p', text: PROTO[x.protocol] || x.protocol }), h('span', { cls: 'nm', text: x.name }), h('span', { cls: 'sp' }),
+          x.exhausted ? h('span', { cls: 'badge bad', text: t('exhausted') }) : null, h('span', { cls: 'num', text: bytes(x.used) })),
+        bar(max ? x.used / max * 100 : 0, x.exhausted ? 'bad' : 'soft'));
+    }
+    shown.forEach(function (x) { list.appendChild(row(x)); });
+    var moreBtn = more > 0 ? h('button', { cls: 'btn sm sec', on: { click: function () { used.slice(6).forEach(function (x) { list.appendChild(row(x)); }); moreBtn.remove(); } } }, t('showAllN', used.length)) : null;
+    return h('section', { cls: 'card', 'aria-labelledby': 'h-lines' },
+      h('div', { cls: 'card-h' }, h('h2', { id: 'h-lines', text: t('lines') })),
+      lim.length ? h('ul', { cls: 'lims', 'aria-label': t('lineLimits') }, lim) : null,
+      used.length ? list : h('div', { cls: 'meta', text: t('noUse') }), moreBtn);
+  }
+
   function support(d) {
     var s = (d.site || {}).support || []; if (!s.length) return null;
     var icon = { telegram: 'tg', book: 'book', mail: 'mail', chat: 'tg' };
@@ -315,7 +354,7 @@
     app.removeAttribute('aria-busy');
     app.replaceChildren(h('div', { cls: 'wrap' }, header(d),
       h('div', { cls: 'layout' },
-        h('div', { cls: 'main' }, o(notice(d), 1), o(status(d), 2), o(nodes(d, settings), 5)),
+        h('div', { cls: 'main' }, o(notice(d), 1), o(status(d), 2), o(lines(d), 2), o(nodes(d, settings), 5)),
         h('div', { cls: 'side' }, o(subscription(d), 3), o(clients(d, settings), 4), o(support(d), 6))),
       h('div', { cls: 'foot meta', text: settings.footer || t('footer', new Date(d.generated_at * 1000).toLocaleString(LANG === 'zh' ? 'zh-CN' : 'en', { hour12: false })) })));
     if (again) { var ps = document.getElementById('sbp-profile'); if (ps) ps.focus(); }

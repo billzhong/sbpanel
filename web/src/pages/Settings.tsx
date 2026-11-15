@@ -324,7 +324,7 @@ function Account() {
   )
 }
 
-const NOTIFY_IDS = ['node_offline', 'node_online', 'apply_failed', 'node_quota', 'quota_exceeded', 'user_expired', 'device_limit', 'node_enrolled',
+const NOTIFY_IDS = ['node_offline', 'node_online', 'apply_failed', 'node_quota', 'quota_exceeded', 'limit_exceeded', 'user_expired', 'device_limit', 'node_enrolled',
   'usage_reset', 'cert_expiring', 'cert_renew_failed', 'cert_renewed', 'inbound_unreachable', 'inbound_recovered'] as const
 const notifyKinds = () => NOTIFY_IDS.map((id) => ({ id, label: tr(S)[`k_${id}`] }))
 

@@ -70,6 +70,8 @@ func (m *Master) resetUsage(t time.Time) {
 			continue
 		}
 		m.db.Exec(`UPDATE users SET used_up=0, used_down=0, last_reset_at=? WHERE id=?`, t.Unix(), x.id)
+		resetUserLimits(m.db, x.id)
+		changed = true // limits on the user's cycle give closed inbounds back
 		addEvent(m.db, "usage_reset", x.id, "", x.strategy)
 		if x.status == "limited" {
 			m.recomputeStatus(x.id)
@@ -197,6 +199,7 @@ var eventText = map[string]string{
 	"node_enrolled": "🆕 Node enrolled", "usage_reset": "🔄 Usage reset", "user_reactivated": "✅ User reactivated",
 	"cert_renewed": "🔐 Certificate renewed", "cert_renew_failed": "❗ Certificate renewal failed", "cert_expiring": "⏳ Certificate expiring",
 	"inbound_unreachable": "🔴 Inbound unreachable", "inbound_recovered": "🟢 Inbound recovered",
+	"limit_exceeded": "🚧 Line limit used up",
 }
 
 // notifyLang is the language of Telegram / webhook notifications: that of the last admin sign-in

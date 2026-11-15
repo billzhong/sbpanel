@@ -12,6 +12,7 @@ const kinds: Record<string, { tone: 'good' | 'warn' | 'bad' | 'neutral' | 'accen
   node_offline: { tone: 'bad', get text() { return tr(D).node_offline } },
   apply_failed: { tone: 'warn', get text() { return tr(D).apply_failed } },
   quota_exceeded: { tone: 'warn', get text() { return tr(D).quota_exceeded } },
+  limit_exceeded: { tone: 'warn', get text() { return tr(D).limit_exceeded } },
   user_expired: { tone: 'bad', get text() { return tr(D).user_expired } },
   users_expired: { tone: 'bad', get text() { return tr(D).users_expired } },
   user_reactivated: { tone: 'good', get text() { return tr(D).user_reactivated } },

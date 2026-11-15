@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -82,6 +83,26 @@ type subNodeJSON struct {
 	QR        string     `json:"qr"`
 }
 
+// subUsage is this cycle's usage of one line (an inbound, however many hosts reach it).
+type subUsage struct {
+	Name      string `json:"name"`
+	Protocol  string `json:"protocol"`
+	Up        int64  `json:"up"`
+	Down      int64  `json:"down"`
+	Used      int64  `json:"used"`
+	Exhausted bool   `json:"exhausted"` // closed by a traffic limit until it resets
+}
+
+// subLimit is a traffic limit covering some of the user's lines.
+type subLimit struct {
+	Name      string   `json:"name"`
+	Used      int64    `json:"used"`
+	Total     int64    `json:"total"` // 0 = no limit for this user
+	Exhausted bool     `json:"exhausted"`
+	NextAt    int64    `json:"next_at"` // when it resets (0 = never)
+	Lines     []string `json:"lines"`   // usage[].name entries it covers
+}
+
 type subReset struct {
 	Strategy string `json:"strategy"`
 	LastAt   int64  `json:"last_at"`
@@ -130,6 +151,8 @@ type subPageData struct {
 	Subscription subSubscription `json:"subscription"`
 	Clients      []subClient     `json:"clients"`
 	Nodes        []subNodeJSON   `json:"nodes"`
+	Usage        []subUsage      `json:"usage"`
+	Limits       []subLimit      `json:"limits"`
 	Theme        subThemeRef     `json:"theme"`
 	// routing profiles the user may pick; selected_profile is the one in effect
 	Profiles        []subProfileOption `json:"profiles"`
@@ -356,13 +379,16 @@ func (m *Master) subData(r *http.Request, u subUser, es []subEntry, t *subTheme)
 	}
 	uj.Reset.NextAt = nextReset(u.ResetStrategy, time.Unix(u.CreatedAt, 0), time.Now(), m.loc)
 	nodes := []subNodeJSON{}
-	for i, e := range es {
-		nodes = append(nodes, e.nodeJSON(i, string(qrDataURI(e.uri()))))
+	for _, e := range es {
+		if !u.Blocked[e.Inbound] {
+			nodes = append(nodes, e.nodeJSON(len(nodes), string(qrDataURI(e.uri()))))
+		}
 	}
+	usage, limits := m.subUsage(u, es, uj.Reset.NextAt)
 	return subPageData{
 		API: themeAPIVersion, GeneratedAt: time.Now().Unix(), Site: m.subSite(), User: uj,
 		Subscription: subSubscription{URL: link, QR: string(qrDataURI(link)), UpdateHours: hours, Formats: subFormats(link)},
-		Clients:      m.clientsFor(link, u.Username, m.allowedClients()), Nodes: nodes,
+		Clients:      m.clientsFor(link, u.Username, m.allowedClients()), Nodes: nodes, Usage: usage, Limits: limits,
 		Theme:    subThemeRef{ID: t.ID, Version: t.Version, Settings: m.themeSettings(t, nil)},
 		Profiles: profiles, SelectedProfile: selected,
 		Lang: subLang(r), Locale: contentLanguage(subLang(r)),
@@ -415,6 +441,16 @@ func (m *Master) previewData(r *http.Request, t *subTheme, override map[string]a
 	}
 	for i, e := range es {
 		d.Nodes = append(d.Nodes, e.nodeJSON(i, string(qrDataURI(e.uri()))))
+	}
+	d.Usage, d.Limits = []subUsage{}, []subLimit{}
+	if es != nil {
+		d.Usage = []subUsage{
+			{Name: "🇺🇸 Los Angeles CN2", Protocol: "vless", Up: 2 << 30, Down: 31 << 30, Used: 33 << 30},
+			{Name: "Tokyo IIJ", Protocol: "vmess", Up: 1 << 29, Down: 15 << 30, Used: 31 << 29},
+			{Name: "Hong Kong HKT", Protocol: "trojan", Up: 1 << 29, Down: 8 << 30, Used: 17 << 29},
+			{Name: "Singapore Hysteria2", Protocol: "hysteria2", Used: 0},
+		}
+		d.Limits = []subLimit{{Name: "Tokyo home line", Used: 31 << 29, Total: 50 << 30, NextAt: d.User.Reset.NextAt, Lines: []string{"Tokyo IIJ"}}}
 	}
 	return d
 }
@@ -534,4 +570,45 @@ func entryRegion(e subEntry) *subRegion {
 		return &subRegion{e.Region, flagOf(e.Region)}
 	}
 	return guessRegion(e.Remark)
+}
+
+// subUsage is the per-line usage and the traffic limits shown on the subscription page.
+func (m *Master) subUsage(u subUser, es []subEntry, userNext int64) ([]subUsage, []subLimit) {
+	usage, limits := []subUsage{}, []subLimit{}
+	if u.ID <= 0 {
+		return usage, limits
+	}
+	use := map[int64][2]int64{}
+	rows, err := m.db.Query(`SELECT inbound_id, up, down FROM inbound_usage WHERE user_id=?`, u.ID)
+	if err == nil {
+		for rows.Next() {
+			var id, up, down int64
+			rows.Scan(&id, &up, &down)
+			use[id] = [2]int64{up, down}
+		}
+		rows.Close()
+	}
+	name := map[int64]string{}
+	for _, e := range es {
+		if _, ok := name[e.Inbound]; ok {
+			continue
+		}
+		name[e.Inbound] = e.Line
+		v := use[e.Inbound]
+		usage = append(usage, subUsage{Name: e.Line, Protocol: e.Type, Up: v[0], Down: v[1], Used: v[0] + v[1], Exhausted: u.Blocked[e.Inbound]})
+	}
+	sort.SliceStable(usage, func(i, j int) bool { return usage[i].Used > usage[j].Used })
+	for _, l := range m.userLimits(u.ID) {
+		sl := subLimit{Name: l.Name, Used: l.Used, Total: l.TrafficLimit, Exhausted: l.Exhausted, NextAt: l.NextReset, Lines: []string{}}
+		if l.Period == periodUser {
+			sl.NextAt = userNext
+		}
+		for _, id := range l.InboundIDs {
+			if n, ok := name[id]; ok {
+				sl.Lines = append(sl.Lines, n)
+			}
+		}
+		limits = append(limits, sl)
+	}
+	return usage, limits
 }

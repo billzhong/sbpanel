@@ -17,6 +17,7 @@ import { InboundsPage } from './pages/Inbounds'
 import { UsersPage } from './pages/Users'
 import { EventsPage } from './pages/Events'
 import { GroupsPage } from './pages/Groups'
+import { LimitsPage } from './pages/Limits'
 import { SubscriptionsPage } from './pages/Subscriptions'
 import { TemplatesPage } from './pages/Templates'
 import { LivePage } from './pages/Live'
@@ -33,6 +34,7 @@ const IconRoute = (p: { size?: number }) => <svg width={p.size ?? 18} height={p.
 const IconPulse = (p: { size?: number }) => <svg width={p.size ?? 18} height={p.size ?? 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg>
 const IconGear = (p: { size?: number }) => <svg width={p.size ?? 18} height={p.size ?? 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
 
+const IconGauge = (p: { size?: number }) => <svg width={p.size ?? 18} height={p.size ?? 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4.5 17.5a8.5 8.5 0 1 1 15 0" /><path d="m12 13.5 3.5-4" /><circle cx="12" cy="14" r="1.2" /></svg>
 const IconShield = (p: { size?: number }) => <svg width={p.size ?? 18} height={p.size ?? 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z" /><path d="m9 12 2.2 2.2L15.5 10" /></svg>
 
 type NavItem = { id: string; readonly label: string; key: string; icon: ReactNode; el: () => ReactNode; mobile?: boolean; readonly words?: string }
@@ -49,6 +51,7 @@ const groups: { readonly label: string; items: NavItem[] }[] = [
     get label() { return tr(SH).gUsers }, items: [
       { id: 'users', get label() { return tr(SH).users }, key: 'u', icon: <IconUsers />, el: () => <UsersPage />, mobile: true, get words() { return 'users clients ' + tr(KW).users } },
       { id: 'groups', get label() { return tr(SH).groups }, key: 'p', icon: <IconGroup />, el: () => <GroupsPage />, get words() { return 'groups squad ' + tr(KW).groups } },
+      { id: 'limits', get label() { return tr(SH).limits }, key: 'q', icon: <IconGauge />, el: () => <LimitsPage />, get words() { return 'limits quota ' + tr(KW).limits } },
       { id: 'subscriptions', get label() { return tr(SH).subscriptions }, key: 's', icon: <IconGlobe />, el: () => <SubscriptionsPage />, get words() { return 'routing clash surge profile subscription host cdn ' + tr(KW).subscriptions } },
     ],
   },

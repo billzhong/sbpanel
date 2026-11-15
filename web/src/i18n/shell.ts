@@ -5,7 +5,7 @@ const s = (n: number) => (n === 1 ? '' : 's')
 /** App shell: navigation, header, ⌘K palette, shortcuts, login. */
 export const SH = dict({
   gObserve: 'Monitor', gUsers: 'Users', gNodes: 'Nodes & core', gSystem: 'System',
-  overview: 'Overview', traffic: 'Traffic', live: 'Live connections', events: 'Events & audit', users: 'Users', groups: 'Groups',
+  overview: 'Overview', traffic: 'Traffic', live: 'Live connections', events: 'Events & audit', users: 'Users', groups: 'Groups', limits: 'Traffic limits',
   subscriptions: 'Subscriptions', nodes: 'Nodes', inbounds: 'Inbounds', certs: 'Domains & certificates', templates: 'Route templates', settings: 'Settings',
   skip: 'Skip to main content', searchBox: 'Search pages, users, nodes…', drafts: (n: number) => `${n} template draft${s(n)} to publish`,
   search: 'Search', refresh: 'Refresh data', toLight: 'Switch to light mode', toDark: 'Switch to dark mode', logout: 'Sign out',
@@ -30,7 +30,7 @@ export const SH = dict({
   signingIn: 'Signing in…', signIn: 'Sign in',
 }, {
   gObserve: '观测', gUsers: '用户', gNodes: '节点与内核', gSystem: '系统',
-  overview: '概览', traffic: '流量分析', live: '实时连接', events: '事件与审计', users: '用户', groups: '分组',
+  overview: '概览', traffic: '流量分析', live: '实时连接', events: '事件与审计', users: '用户', groups: '分组', limits: '流量限额',
   subscriptions: '订阅', nodes: '节点', inbounds: '入站', certs: '域名与证书', templates: '路由模板', settings: '设置',
   skip: '跳到主要内容', searchBox: '搜索页面、用户、节点…', drafts: (n) => `${n} 个模板草稿待发布`,
   search: '搜索', refresh: '刷新数据', toLight: '切换到浅色', toDark: '切换到深色', logout: '退出登录',
@@ -56,9 +56,9 @@ export const SH = dict({
 
 /** Extra ⌘K search keywords per page, in the UI language (the English ids/keywords in App.tsx always match). */
 export const KW = dict({
-  overview: '', traffic: 'usage bandwidth', live: 'online sessions', events: 'history', users: 'accounts', groups: '',
+  overview: '', traffic: 'usage bandwidth', live: 'online sessions', events: 'history', users: 'accounts', groups: '', limits: 'quota cap home line',
   subscriptions: 'rules', nodes: 'servers', inbounds: 'protocols connectivity', certs: 'renew https', templates: 'rules', settings: 'notifications migrate',
 }, {
-  overview: '概览 首页', traffic: '流量 域名', live: '连接 在线', events: '事件 审计 日志', users: '用户 客户端', groups: '分组',
+  overview: '概览 首页', traffic: '流量 域名', live: '连接 在线', events: '事件 审计 日志', users: '用户 客户端', groups: '分组', limits: '限额 家宽 线路 流量限制',
   subscriptions: '订阅 分流 规则 模板', nodes: '节点 服务器', inbounds: '入站 协议 连通性', certs: '证书 域名 续期', templates: '路由 出站 规则 模板', settings: '设置 迁移 通知 备份',
 })

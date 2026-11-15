@@ -30,7 +30,7 @@ export const S = dict({
   enableTotp: 'Enable two-factor authentication', confirmPw: 'Enter your password to confirm',
   // notify
   k_node_offline: 'Node offline (over 60 s)', k_node_online: 'Node back online', k_apply_failed: 'Config deploy failed',
-  k_node_quota: 'Node monthly traffic at 80% / 100%', k_quota_exceeded: 'User out of traffic', k_user_expired: 'User expired',
+  k_node_quota: 'Node monthly traffic at 80% / 100%', k_quota_exceeded: 'User out of traffic', k_limit_exceeded: 'User used up a line limit', k_user_expired: 'User expired',
   k_device_limit: 'Device limit exceeded', k_node_enrolled: 'New node enrolled', k_usage_reset: 'Usage period reset',
   k_cert_expiring: 'Certificate expiring (≤ 14 days)', k_cert_renew_failed: 'Certificate renewal failed', k_cert_renewed: 'Certificate renewed',
   k_inbound_unreachable: 'Inbound unreachable (connectivity check)', k_inbound_recovered: 'Inbound recovered',
@@ -87,7 +87,7 @@ export const S = dict({
   code6: '6 位验证码', verifyEnable: '验证并开启', totpOffHint: '开启后，即使密码泄露也无法登录面板。',
   enableTotp: '开启两步验证', confirmPw: '输入密码确认',
   k_node_offline: '节点离线（超过 60 秒）', k_node_online: '节点上线', k_apply_failed: '配置下发失败',
-  k_node_quota: '节点月流量 80% / 100%', k_quota_exceeded: '用户流量用尽', k_user_expired: '用户到期',
+  k_node_quota: '节点月流量 80% / 100%', k_quota_exceeded: '用户流量用尽', k_limit_exceeded: '用户线路限额用尽', k_user_expired: '用户到期',
   k_device_limit: '设备数超限', k_node_enrolled: '新节点接入', k_usage_reset: '用量周期重置',
   k_cert_expiring: '证书即将过期（≤14 天）', k_cert_renew_failed: '证书续期失败', k_cert_renewed: '证书已续期',
   k_inbound_unreachable: '入站不可达（连通性检查）', k_inbound_recovered: '入站恢复',

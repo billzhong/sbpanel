@@ -108,6 +108,9 @@ func (m *Master) applyBatch(req batchReq) (int64, error) {
 		err = exec(`UPDATE users SET enabled=0`+in, args...)
 	case "reset_usage":
 		err = exec(`UPDATE users SET used_up=0, used_down=0, last_reset_at=?`+in, append([]any{now()}, args...)...)
+		if err == nil {
+			err = resetUserLimits(tx, req.IDs...)
+		}
 	case "extend_days":
 		secs := int64(num * 86400)
 		// extend from the later of now and the current expiry; no expiry -> now+days

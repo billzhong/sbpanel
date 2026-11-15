@@ -41,6 +41,8 @@ type subEntry struct {
 	CC         string // tuic congestion control
 	Node       string // panel node name (routing filters); keep fields in sync with subgen.Endpoint
 	Region     string // ISO code of where traffic exits ("" = unknown)
+	Inbound    int64  // panel inbound id (usage and limits)
+	Line       string // "<node> <REGION> · <inbound>" before host remarks
 }
 
 type subUser struct {
@@ -55,6 +57,7 @@ type subUser struct {
 	CreatedAt       int64
 	LastResetAt     int64
 	DeviceLimit     int
+	Blocked         map[int64]bool // inbounds a traffic limit has closed for this user
 }
 
 func (u subUser) active() bool { return u.Enabled && u.Status == "active" }
@@ -256,7 +259,7 @@ func (m *Master) expandInbound(in subInbound, uuid, password string) ([]subEntry
 		name += " " + base.Region
 	}
 	base.Remark = name + " · " + label
-	base.Node = in.node
+	base.Node, base.Inbound, base.Line = in.node, in.id, base.Remark
 	hosts, err := scanRows(m, `SELECT remark, address, port, sni, host, path, alpn, fingerprint, allow_insecure FROM hosts
 		WHERE inbound_id=? AND enabled=1 ORDER BY sort, id`, []any{in.id}, func(s func(...any) error) (hostRow, error) {
 		var h hostRow
@@ -592,12 +595,20 @@ func (m *Master) handleSub(w http.ResponseWriter, r *http.Request) {
 	m.db.Exec(`INSERT INTO sub_access(ts, user_id, ip, ua, format) VALUES(?,?,?,?,?)`, now(), u.ID, clientIP(r), truncate(r.UserAgent(), 300), format)
 	m.db.Exec(`UPDATE users SET sub_last_at=?, sub_last_ua=? WHERE id=?`, now(), truncate(r.UserAgent(), 300), u.ID)
 
-	var entries []subEntry
+	var all, entries []subEntry
 	if u.active() {
-		if entries, err = m.subEntries(u); err != nil {
+		if all, err = m.subEntries(u); err != nil {
 			http.Error(w, "internal error", 500)
 			m.log.Printf("sub %d: %v", u.ID, err)
 			return
+		}
+	}
+	// lines a traffic limit closed for this user stay off client configs until it resets;
+	// the page still lists them with their usage
+	u.Blocked = m.blockedInbounds(u.ID)
+	for _, e := range all {
+		if !u.Blocked[e.Inbound] {
+			entries = append(entries, e)
 		}
 	}
 	title := settingOr(m.db, "sub_title", "sbpanel")
@@ -610,11 +621,11 @@ func (m *Master) handleSub(w http.ResponseWriter, r *http.Request) {
 	// One case per output format. Formats that need extra rendering live in their own files.
 	switch format {
 	case "html":
-		m.subPage(w, r, u, entries)
+		m.subPage(w, r, u, all)
 	case "json":
 		h.Set("Content-Type", "application/json; charset=utf-8")
 		h.Set("Access-Control-Allow-Origin", "*") // themed pages run in an opaque origin
-		json.NewEncoder(w).Encode(m.subData(r, u, entries, m.activeTheme()))
+		json.NewEncoder(w).Encode(m.subData(r, u, all, m.activeTheme()))
 	case "singbox", "mihomo", "surge":
 		// routing profile (internal/subgen); legacy generators if none applies or it fails
 		if res, ok := m.renderProfile(r, format, u, entries); ok {

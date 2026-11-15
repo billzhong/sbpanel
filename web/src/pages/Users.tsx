@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Dialog, DialogTrigger, Popover } from 'react-aria-components'
-import { api, type User, type TopRow, type SeriesResp, type Group, type SubInfo } from '../lib/api'
+import { api, type User, type TopRow, type SeriesResp, type Group, type SubInfo, type UserLimit, type InboundUse } from '../lib/api'
+import { D as LD } from '../i18n/limits'
 import { bytes, date, dateTime, parseSize, ago, expiresIn, GB, DAY } from '../lib/fmt'
 import { useRoute, go, replace, withParams, href } from '../lib/router'
 import { flashRows, leaveRows, settleRows, useAction, useApplyTracker, useRowFx, useSubUrl, useUserBatch, useUserPatch } from '../lib/actions'
@@ -737,8 +738,8 @@ function BulkCreate({ groups, isOpen, onClose }: { groups: Group[]; isOpen: bool
 
 // ---- detail drawer --------------------------------------------------------------
 
-type UserDetail = { user: User; ips: { ip: string; node: string; first_seen: number; last_seen: number; online: boolean }[] }
-type DrawerTab = 'overview' | 'sub' | 'devices'
+type UserDetail = { user: User; ips: { ip: string; node: string; first_seen: number; last_seen: number; online: boolean }[]; limits?: UserLimit[]; inbound_usage?: InboundUse[] }
+type DrawerTab = 'overview' | 'lines' | 'sub' | 'devices'
 
 function UserDrawer({ id, isOpen, groups, ids, tab, onTab, onNav, onClose, onAct }: {
   id: number; isOpen: boolean; groups: Group[]; ids: number[]; tab: DrawerTab
@@ -825,7 +826,8 @@ function UserDrawer({ id, isOpen, groups, ids, tab, onTab, onNav, onClose, onAct
 
           <div>
             <Tabs label={t.userDetail} value={tab} onChange={onTab} tabs={[
-              { id: 'overview', label: t.tTraffic }, { id: 'sub', label: t.tSub, count: sub.data?.links.length },
+              { id: 'overview', label: t.tTraffic }, { id: 'lines', label: tr(LD).tLines, count: d.data!.limits?.filter((l) => l.exhausted).length || undefined },
+              { id: 'sub', label: t.tSub, count: sub.data?.links.length },
               { id: 'devices', label: t.tDevices, count: d.data!.ips.length },
             ]} />
             <div key={tab} className="flex animate-content-in flex-col gap-4">
@@ -840,6 +842,7 @@ function UserDrawer({ id, isOpen, groups, ids, tab, onTab, onNav, onClose, onAct
                     onSelect={(k) => go('traffic', { user: id, dim: 'host', q: k, range: '7d' })} />
                 </Card>
               </>}
+              {tab === 'lines' && <Lines d={d.data!} />}
               {tab === 'sub' && (sub.data ? <SubPanel s={sub.data} busy={sub.isPlaceholderData} /> : <Skeleton className="h-48" />)}
               {tab === 'devices' && <Devices d={d.data!} access={sub.data?.access} />}
             </div>
@@ -855,6 +858,95 @@ function UserDrawer({ id, isOpen, groups, ids, tab, onTab, onNav, onClose, onAct
         onConfirm={() => { if (u) run([u.id], 'reset_usage', null, t.resetDone(u.username)).catch(() => {}); else toast('bad', t.notFound) }}
         body={t.resetBody} />
     </Drawer>
+  )
+}
+
+function Lines({ d }: { d: UserDetail }) {
+  const t = useT(LD)
+  const limits = d.limits ?? []
+  const use = d.inbound_usage ?? []
+  const max = Math.max(1, ...use.map((x) => x.up + x.down))
+  return <>
+    <Card title={t.limitsCard} action={<a className="text-[13px] text-accent hover:underline" href={href('limits')}>{t.manage}</a>}>
+      {limits.length === 0 ? <div className="text-[13px] text-muted">{t.noLimits}</div> : (
+        <ul className="flex flex-col gap-4">
+          {limits.map((l) => <LimitRow key={l.id} uid={d.user.id} l={l} />)}
+        </ul>
+      )}
+    </Card>
+    <Card title={t.byInbound} pad={false}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px] whitespace-nowrap">
+          <thead className="text-left text-xs text-subtle"><tr className="border-b"><th className="px-5 py-2 font-medium">{t.inbound}</th><th className="px-3 py-2 font-medium">{t.node}</th><th className="w-[40%] px-5 py-2 text-right font-medium">{t.used}</th></tr></thead>
+          <tbody>
+            {use.map((x) => (
+              <tr key={x.inbound_id} className="border-b last:border-0">
+                <td className="max-w-[220px] px-5 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Badge>{x.type}</Badge>
+                    <span className={cx('truncate', x.blocked && 'text-muted line-through')} title={x.tag}>{x.remark || x.tag}</span>
+                    {x.blocked && <Badge tone="bad">{t.closed}</Badge>}
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-subtle">{x.node}</td>
+                <td className="px-5 py-2">
+                  <div className="flex items-center justify-end gap-3">
+                    <div className="hidden h-1.5 w-24 overflow-hidden rounded-full bg-overlay sm:block"><div className={cx('h-full rounded-full', x.blocked ? 'bg-bad' : 'bg-accent/70')} style={{ width: `${((x.up + x.down) / max) * 100}%` }} /></div>
+                    <span className="w-20 text-right tabular" title={`↑ ${bytes(x.up)} · ↓ ${bytes(x.down)}`}>{x.up + x.down ? bytes(x.up + x.down) : '—'}</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {use.length === 0 && <tr><td colSpan={3} className="py-6 text-center text-muted">{t.noUse}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  </>
+}
+
+function LimitRow({ uid, l }: { uid: number; l: UserLimit }) {
+  const t = useT(LD)
+  const [size, setSize] = useState(l.override && l.traffic_limit ? String(+(l.traffic_limit / GB).toFixed(2)) : '')
+  const set = useAction({
+    fn: (body: { traffic_limit?: number | null; reset_usage?: boolean }) => api(`/users/${uid}/limits/${l.id}`, { method: 'PUT', body }),
+    apply: true, success: t.ownSaved, invalidate: [['user', uid], ['limits']],
+  })
+  const pct = l.traffic_limit ? Math.min(100, (l.used / l.traffic_limit) * 100) : 0
+  const v = parseSize(size)
+  return (
+    <li className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-medium">{l.name}</span>
+        {l.exhausted && <Badge tone="bad">{t.exhausted}</Badge>}
+        {l.override && <Badge tone="accent">{t.own}</Badge>}
+        <span className="flex-1" />
+        <span className="text-[13px] tabular">{l.traffic_limit ? t.ofLimit(bytes(l.used), bytes(l.traffic_limit)) : bytes(l.used)}</span>
+      </div>
+      {l.traffic_limit > 0 && <Progress value={l.exhausted ? 100 : pct} />}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+        <span>{l.traffic_limit ? (l.period === 'month' ? t.resetsOn(date(l.next_reset)) : t.resetsCycle) : t.unlimitedForUser}</span>
+        {l.override && <span>{t.def(bytes(l.default_limit))}</span>}
+        <span className="flex-1" />
+        <DialogTrigger>
+          <Button size="sm" variant="ghost">{t.setOwn}</Button>
+          <Popover placement="bottom end" className={popoverCls}>
+            <Dialog aria-label={t.ownLimit} className="flex w-64 flex-col gap-3 p-3 outline-none">
+              {({ close }) => <>
+                <Field label={t.ownLimit} value={size} onChange={setSize} inputMode="decimal" placeholder={String(+(l.default_limit / GB).toFixed(2))}
+                  description={size.trim() && v > 0 ? `= ${bytes(v)}` : t.def(bytes(l.default_limit))} autoFocus />
+                <div className="flex flex-wrap gap-1.5">
+                  <Button size="sm" variant="primary" isDisabled={!(v > 0)} onPress={() => { set.mutate({ traffic_limit: v }); close() }}>{t.saveOwn}</Button>
+                  <Button size="sm" onPress={() => { set.mutate({ traffic_limit: 0 }); close() }}>{t.noLimit}</Button>
+                  {l.override && <Button size="sm" onPress={() => { setSize(''); set.mutate({ traffic_limit: null }); close() }}>{t.useDefault}</Button>}
+                </div>
+              </>}
+            </Dialog>
+          </Popover>
+        </DialogTrigger>
+        {l.used > 0 && <Button size="sm" variant="ghost" onPress={() => set.mutate({ reset_usage: true }, { onSuccess: () => {} })}>{t.resetUse}</Button>}
+      </div>
+    </li>
   )
 }
 

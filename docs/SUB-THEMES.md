@@ -99,6 +99,12 @@ If you don't use `%SBP_DATA%`, fetch the same object from `location.pathname + '
               "address": "la.example.com", "port": 443, "sni": "…",
               "region": { "code": "US", "flag": "🇺🇸" },          // best-effort guess from the name, or null
               "uri": "vless://…", "qr": "data:image/png;base64,…" }],
+  // this period's usage per line (an inbound, however many hosts reach it), most used first
+  "usage": [{ "name": "LA · Home line", "protocol": "trojan", "up": 0, "down": 0, "used": 0,
+              "exhausted": false }],                      // true: closed by a traffic limit until it resets
+  // traffic limits covering some of the user's lines (e.g. a home line through several relays)
+  "limits": [{ "name": "US home line", "used": 0, "total": 53687091200,   // total 0 = no limit for this user
+               "exhausted": false, "next_at": 0, "lines": ["LA · Home line"] }],
   "theme": { "id": "my-theme", "version": "1.2.0", "settings": { /* merged with defaults */ } },
   // routing profiles the user may switch between (Subscriptions → Routing). Every link is
   // pre-rendered, so a theme only swaps values; "qr" is empty when there is a single profile.
@@ -111,7 +117,8 @@ If you don't use `%SBP_DATA%`, fetch the same object from `location.pathname + '
 }
 ```
 
-- `nodes` is empty unless `user.status` is `active`.
+- `nodes` is empty unless `user.status` is `active`, and leaves out lines closed by a traffic limit
+  (they stay in `usage` with `exhausted: true`).
 - Credentials only appear inside `uri` (and its QR code).
 - `clients` follows the admin's client list in Subscriptions → Subscription page.
 - `subscription` and `clients` already reflect `selected_profile`. To switch, take the values from the

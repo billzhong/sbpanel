@@ -481,6 +481,8 @@ func (m *Master) apiDeleteInbound(w http.ResponseWriter, r *http.Request) {
 	m.db.Exec(`DELETE FROM inbounds WHERE id=?`, id)
 	m.db.Exec(`DELETE FROM hosts WHERE inbound_id=?`, id)
 	m.db.Exec(`DELETE FROM group_inbounds WHERE inbound_id=?`, id)
+	m.db.Exec(`DELETE FROM traffic_rule_inbounds WHERE inbound_id=?`, id)
+	m.db.Exec(`DELETE FROM inbound_usage WHERE inbound_id=?`, id)
 	m.audit(r, "inbound.delete", fmtID(id), "")
 	m.reconcile(node)
 	writeJSON(w, 200, map[string]bool{"ok": true})
@@ -642,7 +644,7 @@ func (m *Master) apiUser(w http.ResponseWriter, r *http.Request) {
 	if us[0].GroupIDs == nil {
 		us[0].GroupIDs = []int64{}
 	}
-	writeJSON(w, 200, map[string]any{"user": us[0], "ips": ips})
+	writeJSON(w, 200, map[string]any{"user": us[0], "ips": ips, "limits": m.userLimits(id), "inbound_usage": m.userInboundUsage(id)})
 }
 
 type userReq struct {
@@ -789,6 +791,7 @@ func (m *Master) apiUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ResetUsage {
 		m.db.Exec(`UPDATE users SET used_up=0, used_down=0, last_reset_at=? WHERE id=?`, now(), id)
+		resetUserLimits(m.db, id)
 	}
 	if req.RotateSecrets {
 		m.db.Exec(`UPDATE users SET uuid=?, password=?, sub_token=? WHERE id=?`, uuid.NewString(), randHex(12), randHex(12), id)
@@ -849,7 +852,7 @@ func (m *Master) apiKickUser(w http.ResponseWriter, r *http.Request) {
 // purgeUserTraffic drops a deleted user's traffic history, so rankings don't
 // show users that no longer exist.
 func (m *Master) purgeUserTraffic(id int64) {
-	for _, t := range []string{"traffic_minute", "traffic_hour", "dim_hour", "dim_5m"} {
+	for _, t := range []string{"traffic_minute", "traffic_hour", "dim_hour", "dim_5m", "inbound_usage", "rule_usage", "user_rule_limits"} {
 		m.db.Exec(`DELETE FROM `+t+` WHERE user_id=?`, id)
 	}
 }

@@ -4,8 +4,15 @@
 package master
 
 var zhCatalog = map[string]string{
-	" · Check the certbot renewal job on the node":                                                 " · 请检查节点上的 certbot 续期任务",
-	" · Uploaded certificates must be replaced manually":                                           " · 上传的证书需要手动替换",
+	"Line limit used up":                                 "线路限额已用尽",
+	"Traffic limit must be greater than 0":               "流量限额必须大于 0",
+	"Traffic limit must not be negative":                 "流量限额不能为负数",
+	"Period must be user or month":                       "周期只能是 user 或 month",
+	"Reset day must be between 1 and 28":                 "重置日需要在 1 到 28 之间",
+	"Traffic limit not found":                            "流量限额不存在",
+	"name and traffic_limit are required":                "需要填写 name 和 traffic_limit",
+	" · Check the certbot renewal job on the node":       " · 请检查节点上的 certbot 续期任务",
+	" · Uploaded certificates must be replaced manually": " · 上传的证书需要手动替换",
 	"%d ACME certificate(s) still renew with this token; delete them or switch their source first": "还有 %d 张 ACME 证书依赖这个令牌续期，请先删除或改用其它来源",
 	"%d days left": "剩余 %d 天",
 	"%d inline rules exceed the limit of %d; use remote rule sets instead": "内联规则共 %d 条，超过上限 %d，请改用远程规则集",
