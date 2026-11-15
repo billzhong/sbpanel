@@ -101,6 +101,9 @@ func basicGroups() []Group {
 	}
 }
 
+// homeNodes matches home-broadband (residential) node names.
+const homeNodes = `(?i)家宽|家庭|住宅|\bhome\b|residential`
+
 // Preset is a built-in starting point offered when creating a profile.
 type Preset struct {
 	Slug, Name, Description string
@@ -141,7 +144,7 @@ func MinimalPreset() *Profile {
 }
 
 // StandardPreset is 「标准分流」: OpenAI, Claude and other AI each get a group (Claude
-// prefers home-broadband nodes), streaming, ads, CN direct, and a "🐟 final" fallback.
+// lists home-broadband nodes first), streaming, ads, CN direct, and a "🐟 final" fallback.
 func StandardPreset() *Profile {
 	regions := []Member{{Kind: "group", Ref: "hk"}, {Kind: "group", Ref: "tw"}, {Kind: "group", Ref: "jp"}, {Kind: "group", Ref: "sg"}, {Kind: "group", Ref: "us"}}
 	sel := func(id, name string, head []Member, tail ...Member) Group {
@@ -167,12 +170,11 @@ func StandardPreset() *Profile {
 		Groups: []Group{
 			sel("proxy", "🚀 节点选择", append([]Member{{Kind: "group", Ref: "fallback"}, {Kind: "group", Ref: "auto"}}, regions...), Member{Kind: "all"}, Member{Kind: "direct"}),
 			// the first healthy node in order; reorder its members to set the priority (e.g. one filter per node)
-			{ID: "fallback", Name: "🛟 故障切换", Type: "fallback", Members: []Member{{Kind: "all", Exclude: `(?i)家宽|家庭|住宅|\bhome\b|residential`}}},
+			{ID: "fallback", Name: "🛟 故障切换", Type: "fallback", Members: []Member{{Kind: "all", Exclude: homeNodes}}},
 			{ID: "auto", Name: "♻️ 自动选择", Type: "url-test", Members: []Member{{Kind: "all"}}},
-			// home-broadband nodes (residential IPs): what AI services trust most; fallback skips dead lines
-			{ID: "home", Name: "🏠 家宽", Type: "fallback", HideIfEmpty: true, Members: []Member{{Kind: "filter", Include: `(?i)家宽|家庭|住宅|\bhome\b|residential`}}},
-			sel("openai", "🤖 OpenAI", []Member{{Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}, {Kind: "group", Ref: "sg"}, {Kind: "group", Ref: "tw"}, {Kind: "group", Ref: "home"}}, proxy...),
-			sel("claude", "🟣 Claude", []Member{{Kind: "group", Ref: "home"}, {Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}}, proxy...),
+			sel("openai", "🤖 OpenAI", []Member{{Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}, {Kind: "group", Ref: "sg"}, {Kind: "group", Ref: "tw"}}, proxy...),
+			// Claude: home-broadband nodes (residential IPs) first, listed directly
+			sel("claude", "🟣 Claude", []Member{{Kind: "filter", Include: homeNodes}, {Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}}, proxy...),
 			sel("ai", "✨ 其他 AI", []Member{{Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}, {Kind: "group", Ref: "sg"}, {Kind: "group", Ref: "tw"}}, proxy...),
 			sel("media", "📺 流媒体", proxy, regions...),
 			sel("tg", "📲 Telegram", proxy, regions...),
