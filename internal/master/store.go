@@ -158,6 +158,12 @@ var migrations = []string{
 	// re-importing during a parallel run adds only what 3x-ui counted since.
 	`ALTER TABLE users ADD COLUMN xui_up INTEGER NOT NULL DEFAULT -1;
 	ALTER TABLE users ADD COLUMN xui_down INTEGER NOT NULL DEFAULT -1`,
+	// v8: drop traffic of users deleted before deletion purged it, and the user-less
+	// rows recorded while relay hops were being set up
+	`DELETE FROM traffic_minute WHERE user_id NOT IN (SELECT id FROM users);
+	DELETE FROM traffic_hour WHERE user_id NOT IN (SELECT id FROM users);
+	DELETE FROM dim_hour WHERE user_id NOT IN (SELECT id FROM users);
+	DELETE FROM dim_5m WHERE user_id NOT IN (SELECT id FROM users)`,
 }
 
 func migrate(db *sql.DB) error {

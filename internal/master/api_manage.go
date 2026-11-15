@@ -818,6 +818,7 @@ func (m *Master) apiDeleteUser(w http.ResponseWriter, r *http.Request) {
 	m.db.Exec(`DELETE FROM users WHERE id=?`, id)
 	m.db.Exec(`DELETE FROM online_ip WHERE user_id=?`, id)
 	m.db.Exec(`DELETE FROM user_groups WHERE user_id=?`, id)
+	m.purgeUserTraffic(id)
 	m.audit(r, "user.delete", fmtID(id), "")
 	m.reconcile()
 	m.hub.kick([]string{strconv.FormatInt(id, 10)})
@@ -833,4 +834,12 @@ func (m *Master) apiKickUser(w http.ResponseWriter, r *http.Request) {
 	m.hub.kick([]string{strconv.FormatInt(id, 10)})
 	m.audit(r, "user.kick", fmtID(id), "")
 	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// purgeUserTraffic drops a deleted user's traffic history, so rankings don't
+// show users that no longer exist.
+func (m *Master) purgeUserTraffic(id int64) {
+	for _, t := range []string{"traffic_minute", "traffic_hour", "dim_hour", "dim_5m"} {
+		m.db.Exec(`DELETE FROM `+t+` WHERE user_id=?`, id)
+	}
 }

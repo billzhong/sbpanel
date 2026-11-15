@@ -139,6 +139,11 @@ func (m *Master) applyBatch(req batchReq) (int64, error) {
 		return 0, err
 	}
 	n, _ := res.RowsAffected()
+	if req.Action == "delete" {
+		for _, id := range req.IDs {
+			m.purgeUserTraffic(id)
+		}
+	}
 	if req.Action != "delete" {
 		for _, id := range req.IDs {
 			m.recomputeStatus(id)

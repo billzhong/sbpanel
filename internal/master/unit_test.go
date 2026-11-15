@@ -1,6 +1,7 @@
 package master
 
 import (
+	"fmt"
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
@@ -547,4 +548,30 @@ func base32Encode(b []byte) string {
 		out.WriteByte(alpha[(buf<<(5-bits))&31])
 	}
 	return out.String()
+}
+
+// Deleted users and user-less traffic (static relay inbounds) never show up in user rankings.
+func TestTopUsersSkipsDeletedAndUserless(t *testing.T) {
+	m := newTestMaster(t)
+	seedNode(t, m, "n1")
+	for _, id := range []int64{5, 6} {
+		m.db.Exec(`INSERT INTO users(id, username, sub_token, uuid, password, created_at) VALUES(?,?,?,?,?,?)`, id, fmt.Sprint("u", id), fmt.Sprint("t", id), "x", "y", now())
+	}
+	h := now() - now()%3600
+	for _, uid := range []int64{0, 5, 6} {
+		for _, tb := range []string{"traffic_hour", "traffic_minute"} {
+			if _, err := m.db.Exec(`INSERT INTO `+tb+`(ts, node_id, user_id, inbound, outbound, up, down, conns) VALUES(?,?,?,?,?,?,?,1)`, h, "n1", uid, "in", "direct", 1, 1000); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	m.purgeUserTraffic(6)
+	m.db.Exec(`DELETE FROM users WHERE id=6`)
+	rows, err := m.top(trafficFilter{from: h - 3600, to: h + 3600}, "user", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Label != "u5" {
+		t.Fatalf("top users: %+v", rows)
+	}
 }

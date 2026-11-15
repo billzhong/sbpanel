@@ -148,6 +148,10 @@ func (m *Master) apiSeries(w http.ResponseWriter, r *http.Request) {
 		tot[key] = [2]int64{t[0] + up, t[1] + down}
 	}
 	rows.Close()
+	if group == "user" {
+		delete(acc, "0") // traffic without a user (static relay inbounds) is not a user
+		delete(tot, "0")
+	}
 
 	keys := make([]string, 0, len(acc))
 	for k := range acc {
@@ -280,6 +284,9 @@ func (m *Master) top(f trafficFilter, dim string, limit int) ([]topRow, error) {
 		}
 	}
 	rows.Close()
+	if dim == "user" {
+		delete(merged, "0") // traffic without a user (static relay inbounds) is not a user
+	}
 	out := make([]topRow, 0, len(merged))
 	for _, v := range merged {
 		out = append(out, *v)
