@@ -13,7 +13,8 @@ const xuiExport = `{"success":true,"msg":"","obj":[
   "clientStats":[{"email":"alice","up":100,"down":2000},{"email":"bob","up":1,"down":2}]},
  {"id":2,"remark":"ws","enable":true,"listen":"0.0.0.0","port":8443,"protocol":"vmess","tag":"inbound-8443",
   "settings":"{\"clients\":[{\"id\":\"11111111-1111-1111-1111-111111111111\",\"email\":\"alice\",\"subId\":\"subalice123\"}]}",
-  "streamSettings":"{\"network\":\"ws\",\"security\":\"tls\",\"wsSettings\":{\"path\":\"/v\",\"host\":\"cdn.example.com\"},\"tlsSettings\":{\"serverName\":\"v.example.com\",\"certificates\":[{\"certificateFile\":\"/etc/c.pem\",\"keyFile\":\"/etc/k.pem\"}],\"alpn\":[\"http/1.1\"]}}"},
+  "streamSettings":"{\"network\":\"ws\",\"security\":\"tls\",\"wsSettings\":{\"path\":\"/v\",\"host\":\"cdn.example.com\"},\"tlsSettings\":{\"serverName\":\"v.example.com\",\"certificates\":[{\"certificateFile\":\"/etc/c.pem\",\"keyFile\":\"/etc/k.pem\"}],\"alpn\":[\"http/1.1\"]}}",
+  "clientStats":[{"email":"alice","up":100,"down":2000}]},
  {"id":3,"remark":"tj","enable":true,"listen":"","port":4433,"protocol":"trojan","tag":"in-4433",
   "settings":"{\"clients\":[{\"password\":\"trojanpw\",\"email\":\"carol\",\"subId\":\"\"}]}",
   "streamSettings":"{\"network\":\"grpc\",\"security\":\"tls\",\"grpcSettings\":{\"serviceName\":\"gun\"},\"tlsSettings\":{\"serverName\":\"t.example.com\",\"certificates\":[{\"certificate\":[\"-----BEGIN CERTIFICATE-----\",\"x\"],\"key\":[\"k\"]}]}}"},
@@ -130,5 +131,52 @@ func TestImport3XUIUsersOnly(t *testing.T) {
 	u, _ := m.loadSubUser("subalice123")
 	if u.UUID != "11111111-1111-1111-1111-111111111111" || u.Limit != 107374182400 {
 		t.Fatalf("alice %+v", u)
+	}
+	// 3x-ui lists alice's single traffic row under both of her inbounds: count it once
+	var up, down int64
+	m.db.QueryRow(`SELECT used_up, used_down FROM users WHERE username='alice'`).Scan(&up, &down)
+	if up != 100 || down != 2000 {
+		t.Fatalf("alice usage counted per inbound: up=%d down=%d", up, down)
+	}
+}
+
+// Re-importing while both panels run adds only what 3x-ui counted since the
+// last sync, on top of what sbpanel counted itself.
+func TestImport3XUIUsageResync(t *testing.T) {
+	m := newTestMaster(t)
+	ins, _ := ParseXUIExport([]byte(xuiExport))
+	if _, err := m.Import3XUIUsers(ins, false); err != nil {
+		t.Fatal(err)
+	}
+	usage := func() (u, d, lu, ld int64) {
+		m.db.QueryRow(`SELECT used_up, used_down, life_up, life_down FROM users WHERE username='alice'`).Scan(&u, &d, &lu, &ld)
+		return
+	}
+	// sbpanel itself counts 5/50 for alice
+	m.db.Exec(`UPDATE users SET used_up=used_up+5, used_down=used_down+50, life_up=life_up+5, life_down=life_down+50 WHERE username='alice'`)
+	grown := strings.ReplaceAll(xuiExport, `{"email":"alice","up":100,"down":2000}`, `{"email":"alice","up":300,"down":2500}`)
+	ins2, _ := ParseXUIExport([]byte(grown))
+	if _, err := m.Import3XUIUsers(ins2, false); err != nil {
+		t.Fatal(err)
+	}
+	if u, d, lu, ld := usage(); u != 305 || d != 2550 || lu != 305 || ld != 2550 {
+		t.Fatalf("resync: used %d/%d life %d/%d, want 305/2550", u, d, lu, ld)
+	}
+	// unchanged 3x-ui numbers: nothing added
+	m.Import3XUIUsers(ins2, false)
+	if u, d, _, _ := usage(); u != 305 || d != 2550 {
+		t.Fatalf("idempotent: %d/%d", u, d)
+	}
+
+	// a user imported before baselines existed, with usage multiplied by its inbounds,
+	// is rebuilt from 3x-ui's value plus sbpanel's own recorded traffic
+	var id, created int64
+	m.db.QueryRow(`SELECT id, created_at FROM users WHERE username='alice'`).Scan(&id, &created)
+	m.db.Exec(`UPDATE users SET used_up=999999, used_down=999999, life_up=999999, life_down=999999, xui_up=-1, xui_down=-1, last_reset_at=? WHERE id=?`, created, id)
+	m.db.Exec(`INSERT INTO traffic_hour(ts, node_id, user_id, inbound, outbound, up, down, conns) VALUES(?,?,?,?,?,?,?,1)`,
+		created-created%3600+3600, "n1", id, "vr", "direct", 7, 70)
+	m.Import3XUIUsers(ins2, false)
+	if u, d, lu, ld := usage(); u != 307 || d != 2570 || lu != 307 || ld != 2570 {
+		t.Fatalf("legacy repair: used %d/%d life %d/%d, want 307/2570", u, d, lu, ld)
 	}
 }

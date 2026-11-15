@@ -154,6 +154,10 @@ var migrations = []string{
 	  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 	CREATE TABLE probe_results(inbound_id INTEGER NOT NULL, endpoint TEXT NOT NULL, ts INTEGER NOT NULL, ok INTEGER NOT NULL,
 	  result_json TEXT NOT NULL, PRIMARY KEY(inbound_id, endpoint)) WITHOUT ROWID`,
+	// v7: the 3x-ui usage already folded into used_*/life_* (-1: never synced), so
+	// re-importing during a parallel run adds only what 3x-ui counted since.
+	`ALTER TABLE users ADD COLUMN xui_up INTEGER NOT NULL DEFAULT -1;
+	ALTER TABLE users ADD COLUMN xui_down INTEGER NOT NULL DEFAULT -1`,
 }
 
 func migrate(db *sql.DB) error {

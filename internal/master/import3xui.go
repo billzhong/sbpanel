@@ -318,9 +318,10 @@ func (m *Master) import3XUI(nodeID string, ins []XUIInbound, dryRun, usersOnly b
 			if c.Enable != nil && !*c.Enable {
 				u.enabled = false
 			}
-			if st, ok := stats[c.Email]; ok {
-				u.up += st[0]
-				u.down += st[1]
+			// 3x-ui keeps one traffic row per email (client_traffics) and lists that same
+			// row under every inbound the email is in: take it once, never sum it.
+			if st, ok := stats[c.Email]; ok && st[0]+st[1] > u.up+u.down {
+				u.up, u.down = st[0], st[1]
 			}
 			switch typ {
 			case "vless", "vmess":
@@ -447,6 +448,9 @@ func (m *Master) import3XUI(nodeID string, ins []XUIInbound, dryRun, usersOnly b
 		if tx.QueryRow(`SELECT id FROM users WHERE username=?`, name).Scan(&id) == nil {
 			tx.Exec(`UPDATE users SET uuid=?, password=?, traffic_limit=?, expire_at=?, device_limit=?, enabled=? WHERE id=?`,
 				uid, pw, c.TotalGB, exp, c.LimitIP, u.enabled, id)
+			if err := syncXUIUsage(tx, id, u.up, u.down); err != nil {
+				return nil, fmt.Errorf("user %s: %w", name, err)
+			}
 			rep.Updated++
 		} else {
 			var clash int
@@ -456,8 +460,8 @@ func (m *Master) import3XUI(nodeID string, ins []XUIInbound, dryRun, usersOnly b
 				rep.Warnings = append(rep.Warnings, fmt.Sprintf("%s 的 subId 与已有用户冲突，已生成新订阅链接", c.Email))
 			}
 			res, err := tx.Exec(`INSERT INTO users(username, sub_token, uuid, password, traffic_limit, expire_at, device_limit, enabled, note,
-				used_up, used_down, life_up, life_down, last_reset_at, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				name, token, uid, pw, c.TotalGB, exp, c.LimitIP, u.enabled, nz(c.Comment, "从 3x-ui 导入"), u.up, u.down, u.up, u.down, now(), now())
+				used_up, used_down, life_up, life_down, xui_up, xui_down, last_reset_at, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				name, token, uid, pw, c.TotalGB, exp, c.LimitIP, u.enabled, nz(c.Comment, "从 3x-ui 导入"), u.up, u.down, u.up, u.down, u.up, u.down, now(), now())
 			if err != nil {
 				return nil, fmt.Errorf("user %s: %w", name, err)
 			}
@@ -484,6 +488,44 @@ func (m *Master) import3XUI(nodeID string, ins []XUIInbound, dryRun, usersOnly b
 		m.reconcile(nodeID)
 	}
 	return rep, nil
+}
+
+// syncXUIUsage folds 3x-ui's current usage of an existing user into its sbpanel
+// usage. While both panels run, a user's usage is what 3x-ui counted plus what
+// sbpanel counted, so a re-import adds only 3x-ui's growth since the last sync
+// (all of it when 3x-ui reset the counter in between).
+//
+// Users imported before the baseline existed (xui_* = -1) were imported with
+// usage multiplied by their inbound count; they are rebuilt from 3x-ui's value
+// plus sbpanel's own recorded traffic.
+func syncXUIUsage(tx *sql.Tx, id, up, down int64) error {
+	var baseUp, baseDown, resetAt, created int64
+	if err := tx.QueryRow(`SELECT xui_up, xui_down, last_reset_at, created_at FROM users WHERE id=?`, id).
+		Scan(&baseUp, &baseDown, &resetAt, &created); err != nil {
+		return err
+	}
+	if baseUp < 0 || baseDown < 0 {
+		own := func(from int64) (u, d int64) {
+			tx.QueryRow(`SELECT COALESCE(SUM(up),0), COALESCE(SUM(down),0) FROM traffic_hour WHERE user_id=? AND ts>=?`,
+				id, from-from%3600).Scan(&u, &d)
+			return
+		}
+		ou, od := own(resetAt)
+		lu, ld := own(created)
+		_, err := tx.Exec(`UPDATE users SET used_up=?, used_down=?, life_up=?, life_down=?, xui_up=?, xui_down=? WHERE id=?`,
+			ou+up, od+down, lu+up, ld+down, up, down, id)
+		return err
+	}
+	grow := func(now, base int64) int64 {
+		if now >= base {
+			return now - base
+		}
+		return now // 3x-ui reset its counter
+	}
+	du, dd := grow(up, baseUp), grow(down, baseDown)
+	_, err := tx.Exec(`UPDATE users SET used_up=used_up+?, used_down=used_down+?, life_up=life_up+?, life_down=life_down+?,
+		xui_up=?, xui_down=? WHERE id=?`, du, dd, du, dd, up, down, id)
+	return err
 }
 
 func dedup(xs []string) []string {
