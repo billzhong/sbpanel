@@ -41,11 +41,12 @@ targets() { # "<host> <binary>" lines for the selected part
 	if [ "$what" != nodes ] && [ -n "$MASTER_HOST" ]; then echo "$MASTER_HOST sbmaster"; fi
 	if [ "$what" != master ]; then for h in $NODE_HOSTS; do echo "$h sbnode"; done; fi
 }
-remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$1" "bash -c $(printf '%q' "$2")"; }
+# the script goes over stdin to bash, so it works whatever the login shell is (fish, ...)
+remote() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$1" bash -s <<<"$2"; }
 
 status() {
 	targets | while read -r h b; do
-		printf '%-28s %-9s %s\n' "$h" "$b" "$(remote "$h" "/usr/local/bin/$b version 2>/dev/null | head -1; systemctl is-active $b" </dev/null | tr '\n' ' ')"
+		printf '%-28s %-9s %s\n' "$h" "$b" "$(remote "$h" "/usr/local/bin/$b version 2>/dev/null | head -1; systemctl is-active $b" | tr '\n' ' ')"
 	done
 }
 
@@ -53,7 +54,7 @@ if [ "$what" = status ]; then status; exit 0; fi
 if [ "$what" = rollback ]; then
 	what=all
 	targets | while read -r h b; do
-		remote "$h" "set -e; test -f /usr/local/bin/$b.prev; mv -f /usr/local/bin/$b.prev /usr/local/bin/$b; systemctl restart $b; sleep 1; systemctl is-active --quiet $b" </dev/null &&
+		remote "$h" "set -e; test -f /usr/local/bin/$b.prev; mv -f /usr/local/bin/$b.prev /usr/local/bin/$b; systemctl restart $b; sleep 1; systemctl is-active --quiet $b" &&
 			say "$h: $b rolled back" || echo "$h: $b rollback failed (no .prev?)" >&2
 	done
 	status
@@ -101,7 +102,7 @@ deploy_one() {
 			mv -f $b.new $b
 			systemctl restart $b
 			for i in 1 2 3 4 5 6; do sleep 1; systemctl is-active --quiet $b && break; done
-			systemctl is-active --quiet $b || { echo 'service failed, rolling back'; mv -f $b.prev $b; systemctl restart $b; exit 1; }" </dev/null &&
+			systemctl is-active --quiet $b || { echo 'service failed, rolling back'; mv -f $b.prev $b; systemctl restart $b; exit 1; }" &&
 		say "$h: $b $VERSION" || { echo "$h: $b deploy FAILED" >&2; return 1; }
 }
 pids=() fails=0
