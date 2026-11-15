@@ -26,6 +26,7 @@ type nodeOut struct {
 	Name            string          `json:"name"`
 	Address         string          `json:"address"`
 	PublicAddress   string          `json:"public_address"`
+	Region          string          `json:"region"`
 	TemplateID      int64           `json:"template_id"`
 	Online          bool            `json:"online"`
 	Enrolled        bool            `json:"enrolled"`
@@ -68,12 +69,12 @@ func (m *Master) monthStart(t time.Time, resetDay int) int64 {
 }
 
 func (m *Master) listNodes() ([]nodeOut, error) {
-	out, err := scanRows(m, `SELECT id, name, address, public_address, template_id, cert_serial<>'', revision, applied_revision, apply_error, last_seen,
+	out, err := scanRows(m, `SELECT id, name, address, public_address, region, template_id, cert_serial<>'', revision, applied_revision, apply_error, last_seen,
 		cert_expire, info_json, traffic_limit, reset_day, (SELECT COUNT(*) FROM inbounds i WHERE i.node_id=nodes.id)
 		FROM nodes ORDER BY created_at`, nil, func(s func(...any) error) (nodeOut, error) {
 		var n nodeOut
 		var info string
-		err := s(&n.ID, &n.Name, &n.Address, &n.PublicAddress, &n.TemplateID, &n.Enrolled, &n.Revision, &n.AppliedRevision, &n.ApplyError, &n.LastSeen,
+		err := s(&n.ID, &n.Name, &n.Address, &n.PublicAddress, &n.Region, &n.TemplateID, &n.Enrolled, &n.Revision, &n.AppliedRevision, &n.ApplyError, &n.LastSeen,
 			&n.CertExpire, &info, &n.TrafficLimit, &n.ResetDay, &n.Inbounds)
 		n.Info = json.RawMessage(info)
 		return n, err
@@ -174,6 +175,7 @@ func (m *Master) apiUpdateNode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name          *string          `json:"name"`
 		PublicAddress *string          `json:"public_address"`
+		Region        *string          `json:"region"`
 		TemplateID    *int64           `json:"template_id"`
 		Skeleton      *json.RawMessage `json:"skeleton"`
 		TrafficLimit  *int64           `json:"traffic_limit"`
@@ -192,6 +194,14 @@ func (m *Master) apiUpdateNode(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.PublicAddress != nil {
 		m.db.Exec(`UPDATE nodes SET public_address=? WHERE id=?`, strings.TrimSpace(*req.PublicAddress), id)
+	}
+	if req.Region != nil {
+		rg, ok := normRegion(*req.Region)
+		if !ok {
+			writeErr(w, 400, "Region must be a two-letter country code, e.g. US or JP")
+			return
+		}
+		m.db.Exec(`UPDATE nodes SET region=? WHERE id=?`, rg, id)
 	}
 	if req.TemplateID != nil {
 		var n int

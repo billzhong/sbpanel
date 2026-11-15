@@ -225,6 +225,7 @@ function Code({ text }: { text: string }) {
 function EditNode({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen: boolean }) {
   const [name, setName] = useState(n.name)
   const [pub, setPub] = useState(n.public_address)
+  const [region, setRegion] = useState(n.region ?? '')
   const [tpl, setTpl] = useState(String(n.template_id))
   const templates = useQuery({ queryKey: ['templates'], queryFn: () => api<Template[]>('/templates') })
   const [limit, setLimit] = useState(n.traffic_limit ? (n.traffic_limit / 1024 ** 3).toString() : '')
@@ -233,7 +234,7 @@ function EditNode({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen
     fn: () => {
       const l = limit.trim() ? parseSize(limit) : 0
       if (Number.isNaN(l)) throw new Error(T().badLimit)
-      return api(`/nodes/${n.id}`, { method: 'PATCH', body: { name, public_address: pub, template_id: Number(tpl), traffic_limit: l, reset_day: Math.min(28, Math.max(1, Number(day) || 1)) } })
+      return api(`/nodes/${n.id}`, { method: 'PATCH', body: { name, public_address: pub, region: region.trim().toUpperCase(), template_id: Number(tpl), traffic_limit: l, reset_day: Math.min(28, Math.max(1, Number(day) || 1)) } })
     },
     apply: Number(tpl) !== n.template_id, success: T().savedX(name), invalidate: [['nodes'], ['templates']], onSuccess: onClose,
   })
@@ -245,7 +246,10 @@ function EditNode({ n, onClose, isOpen }: { n: Node; onClose: () => void; isOpen
           <Field label={T().nameShort} value={name} onChange={setName} />
           <Select label={T().template} value={tpl} onChange={setTpl} options={(templates.data ?? []).map((t) => ({ id: String(t.id), label: t.name }))} />
         </div>
-        <Field label={T().pubAddrShort} value={pub} onChange={setPub} placeholder={n.address || T().pubPh2} description={T().pubHint2} />
+        <div className="grid gap-4 sm:grid-cols-[1fr_9rem]">
+          <Field label={T().pubAddrShort} value={pub} onChange={setPub} placeholder={n.address || T().pubPh2} description={T().pubHint2} />
+          <Field label={T().region} value={region} onChange={(v) => setRegion(v.toUpperCase().slice(0, 2))} placeholder="US" description={T().regionHint} />
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <Field label={T().limit} value={limit} onChange={setLimit} placeholder={T().unlimited} description={n.traffic_limit ? T().current(bytes(n.traffic_limit)) : T().limitHint} />
           <Field label={T().resetDay} value={day} onChange={setDay} description="1–28" />

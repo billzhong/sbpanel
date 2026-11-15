@@ -216,6 +216,8 @@ function InboundEditor({ nodes, groups, value, onClose, isOpen, preNode }: { nod
   const [tag, setTag] = useState(value?.tag ?? '')
   const [tagTouched, setTagTouched] = useState(!!value)
   const [remark, setRemark] = useState(value?.remark ?? '')
+  const region0 = String((value?.options as Record<string, unknown> | undefined)?._region ?? '')
+  const [region, setRegion] = useState(region0)
   const [port, setPort] = useState(String(value?.port ?? randPort()))
   const [sni, setSni] = useState('www.microsoft.com')
   const [handshake, setHandshake] = useState('www.microsoft.com:443')
@@ -273,6 +275,10 @@ function InboundEditor({ nodes, groups, value, onClose, isOpen, preNode }: { nod
       else {
         try { options = JSON.parse(json); cl = JSON.parse(client || '{}') } catch (e) { throw new Error(T().badJson((e as Error).message)) }
       }
+      if (options && typeof options === 'object') {
+        const o = options as Record<string, unknown>
+        if (region) o._region = region; else delete o._region
+      }
       if (value) await api(`/inbounds/${value.id}`, { method: 'PATCH', body: { tag, type, options, client: cl, remark, group_ids: gids } })
       else await api('/inbounds', { method: 'POST', body: { node_id: nodeId, tag, type, options, client: cl, remark, group_ids: gids } })
       for (const k of ['groups', 'inbounds', 'nodes', 'hosts']) qc.invalidateQueries({ queryKey: [k] })
@@ -281,7 +287,7 @@ function InboundEditor({ nodes, groups, value, onClose, isOpen, preNode }: { nod
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
-  const dirty = !value ? (jsonTouched || remark !== '') : (json !== JSON.stringify(value.options, null, 2) || tag !== value.tag || remark !== value.remark || gids.join() !== value.group_ids.join())
+  const dirty = !value ? (jsonTouched || remark !== '') : (json !== JSON.stringify(value.options, null, 2) || tag !== value.tag || remark !== value.remark || region !== region0 || gids.join() !== value.group_ids.join())
   return (
     <ModalDialog wide isOpen={isOpen} onOpenChange={(v) => !v && onClose()} title={value ? T().editX(value.tag) : T().newInbound} dirty={dirty}
       footer={<>{err && <span className="mr-auto max-w-full self-center text-[13px] break-all text-bad">{err}</span>}<Button onPress={onClose}>{tr(C).cancel}</Button>
@@ -318,9 +324,10 @@ function InboundEditor({ nodes, groups, value, onClose, isOpen, preNode }: { nod
           </>
         )}
         {value && <EditCertSource json={json} setJson={(j) => { setJson(j); setJsonTouched(true) }} certs={certs.data ?? []} nodeId={value.node_id} />}
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_9rem]">
           <Field label={T().tag} value={tag} onChange={(v) => { setTag(v); setTagTouched(true) }} mono />
           <Field label={T().remark} value={remark} onChange={setRemark} placeholder={T().optional} />
+          <Field label={T().exitRegion} value={region} onChange={(v) => setRegion(v.toUpperCase().slice(0, 2))} placeholder={T().optional} description={T().exitRegionHint} />
         </div>
         <CheckList label={T().groups} value={gids} onChange={setGids}
           options={groups.map((g) => ({ id: g.id, label: g.name, hint: T().usersN(g.users) }))} />

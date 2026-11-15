@@ -164,6 +164,8 @@ var migrations = []string{
 	DELETE FROM traffic_hour WHERE user_id NOT IN (SELECT id FROM users);
 	DELETE FROM dim_hour WHERE user_id NOT IN (SELECT id FROM users);
 	DELETE FROM dim_5m WHERE user_id NOT IN (SELECT id FROM users)`,
+	// v9: where a node's traffic exits (ISO 3166 code); inbounds may override it with "_region"
+	`ALTER TABLE nodes ADD COLUMN region TEXT NOT NULL DEFAULT ''`,
 }
 
 func migrate(db *sql.DB) error {

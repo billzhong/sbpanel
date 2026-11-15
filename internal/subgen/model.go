@@ -121,6 +121,7 @@ type Endpoint struct {
 	SSMethod   string
 	CC         string // tuic congestion control
 	Node       string
+	Region     string // ISO code of where traffic exits ("" = unknown)
 }
 
 // Meta is per-request context available to templates.

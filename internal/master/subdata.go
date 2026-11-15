@@ -248,7 +248,7 @@ func (e subEntry) nodeJSON(i int, qr string) subNodeJSON {
 		security = "none"
 	}
 	return subNodeJSON{ID: i, Name: e.Remark, Protocol: e.Type, Transport: transport, Security: security, Flow: e.Flow,
-		Address: e.Address, Port: e.Port, SNI: e.SNI, Region: guessRegion(e.Remark), URI: e.uri(), QR: qr}
+		Address: e.Address, Port: e.Port, SNI: e.SNI, Region: entryRegion(e), URI: e.uri(), QR: qr}
 }
 
 func (m *Master) subSite() subSite {
@@ -523,4 +523,12 @@ func validateAppearance(v string) (string, error) {
 	}
 	b, _ := json.Marshal(a)
 	return string(b), nil
+}
+
+// entryRegion prefers the configured exit region and falls back to guessing from the remark.
+func entryRegion(e subEntry) *subRegion {
+	if e.Region != "" {
+		return &subRegion{e.Region, flagOf(e.Region)}
+	}
+	return guessRegion(e.Remark)
 }

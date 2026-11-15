@@ -40,6 +40,7 @@ type subEntry struct {
 	SSMethod   string
 	CC         string // tuic congestion control
 	Node       string // panel node name (routing filters); keep fields in sync with subgen.Endpoint
+	Region     string // ISO code of where traffic exits ("" = unknown)
 }
 
 type subUser struct {
@@ -249,7 +250,12 @@ func (m *Master) expandInbound(in subInbound, uuid, password string) ([]subEntry
 	if label == "" {
 		label = in.tag
 	}
-	base.Remark = in.node + " · " + label
+	base.Region = m.exitRegion(in.node, in.opts)
+	name := in.node
+	if base.Region != "" {
+		name += " " + base.Region
+	}
+	base.Remark = name + " · " + label
 	base.Node = in.node
 	hosts, err := scanRows(m, `SELECT remark, address, port, sni, host, path, alpn, fingerprint, allow_insecure FROM hosts
 		WHERE inbound_id=? AND enabled=1 ORDER BY sort, id`, []any{in.id}, func(s func(...any) error) (hostRow, error) {
@@ -692,4 +698,31 @@ func (m *Master) subPage(w http.ResponseWriter, r *http.Request, u subUser, es [
 		bt := builtinTheme()
 		renderTheme(w, bt, m.subData(r, u, es, bt), "'none'")
 	}
+}
+
+// exitRegion is where an inbound's traffic leaves: its own "_region" (relays that
+// exit elsewhere), else its node's region.
+func (m *Master) exitRegion(node, optsJSON string) string {
+	var o struct {
+		Region string `json:"_region"`
+	}
+	json.Unmarshal([]byte(optsJSON), &o)
+	if rg, ok := normRegion(o.Region); ok && rg != "" {
+		return rg
+	}
+	var rg string
+	m.db.QueryRow(`SELECT region FROM nodes WHERE name=?`, node).Scan(&rg)
+	return rg
+}
+
+// normRegion upper-cases a two-letter country code; "" is valid (unset).
+func normRegion(s string) (string, bool) {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	if s == "" {
+		return "", true
+	}
+	if len(s) != 2 || s[0] < 'A' || s[0] > 'Z' || s[1] < 'A' || s[1] > 'Z' {
+		return "", false
+	}
+	return s, true
 }

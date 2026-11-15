@@ -1,13 +1,13 @@
 package master
 
 import (
-	"fmt"
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
@@ -573,5 +573,27 @@ func TestTopUsersSkipsDeletedAndUserless(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Label != "u5" {
 		t.Fatalf("top users: %+v", rows)
+	}
+}
+
+// Subscription names carry where traffic exits: the inbound's "_region" (relays),
+// else its node's region.
+func TestExitRegion(t *testing.T) {
+	m := newTestMaster(t)
+	seedNode(t, m, "n1")
+	m.db.Exec(`UPDATE nodes SET region='US' WHERE id='n1'`)
+	if got := m.exitRegion("n-n1", `{"listen_port":1}`); got != "US" {
+		t.Fatalf("node region: %q", got)
+	}
+	if got := m.exitRegion("n-n1", `{"_region":"jp"}`); got != "JP" {
+		t.Fatalf("relay override: %q", got)
+	}
+	if got := m.exitRegion("n-n1", `{"_region":"Japan"}`); got != "US" {
+		t.Fatalf("invalid override must fall back: %q", got)
+	}
+	for in, want := range map[string]bool{"us": true, "": true, "USA": false, "1A": false} {
+		if _, ok := normRegion(in); ok != want {
+			t.Fatalf("normRegion(%q) ok=%v", in, ok)
+		}
 	}
 }

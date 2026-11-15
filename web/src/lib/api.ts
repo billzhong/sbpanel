@@ -47,7 +47,7 @@ export type Node = {
   id: string; name: string; address: string; online: boolean; enrolled: boolean
   revision: number; applied_revision: number; apply_error: string; last_seen: number; cert_expire: number
   info: { version?: string; singbox?: string; hostname?: string; os?: string; arch?: string }
-  public_address: string; template_id: number
+  public_address: string; region?: string; template_id: number
   traffic_limit: number; reset_day: number; inbounds: number; sys?: SysInfo
   rate_up: number; rate_down: number; active_conns: number; spool_backlog: number; online_users: number
   month_up: number; month_down: number; today_up: number; today_down: number
