@@ -68,7 +68,7 @@ export function GroupsPage() {
 
 /**
  * A group's inbounds, grouped by node. Up to COMPACT they show inline; beyond that the card stays short:
- * one summary chip per node ("dmit 6 · zouter 7"), and the full per-node list expands in a scrollable box.
+ * one summary chip per node ("tokyo 6 · la 7"), and the full per-node list expands in a scrollable box.
  */
 const COMPACT = 6
 function GroupInbounds({ ids, inbounds, nodes }: { ids: number[]; inbounds: Inbound[]; nodes: Node[] }) {
