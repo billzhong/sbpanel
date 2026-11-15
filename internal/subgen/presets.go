@@ -169,8 +169,8 @@ func StandardPreset() *Profile {
 			// the first healthy node in order; reorder its members to set the priority (e.g. one filter per node)
 			{ID: "fallback", Name: "🛟 故障切换", Type: "fallback", Members: []Member{{Kind: "all", Exclude: `(?i)家宽|家庭|住宅|\bhome\b|residential`}}},
 			{ID: "auto", Name: "♻️ 自动选择", Type: "url-test", Members: []Member{{Kind: "all"}}},
-			// home-broadband nodes (residential IPs): what AI services trust most
-			{ID: "home", Name: "🏠 家宽", Type: "select", HideIfEmpty: true, Members: []Member{{Kind: "filter", Include: `(?i)家宽|家庭|住宅|\bhome\b|residential`}}},
+			// home-broadband nodes (residential IPs): what AI services trust most; fallback skips dead lines
+			{ID: "home", Name: "🏠 家宽", Type: "fallback", HideIfEmpty: true, Members: []Member{{Kind: "filter", Include: `(?i)家宽|家庭|住宅|\bhome\b|residential`}}},
 			sel("openai", "🤖 OpenAI", []Member{{Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}, {Kind: "group", Ref: "sg"}, {Kind: "group", Ref: "tw"}, {Kind: "group", Ref: "home"}}, proxy...),
 			sel("claude", "🟣 Claude", []Member{{Kind: "group", Ref: "home"}, {Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}}, proxy...),
 			sel("ai", "✨ 其他 AI", []Member{{Kind: "group", Ref: "us"}, {Kind: "group", Ref: "jp"}, {Kind: "group", Ref: "sg"}, {Kind: "group", Ref: "tw"}}, proxy...),
