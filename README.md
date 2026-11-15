@@ -1,109 +1,143 @@
 # sbpanel
 
-基于 **sing-box** 的代理管理面板：master 与 node 分离部署，内置按连接计数的流量统计（相当于自带 Neko Master）。
-设计文档见 [docs/DESIGN.md](docs/DESIGN.md)。
+**English** | [简体中文](README.zh-CN.md)
 
-## 功能
+A proxy management panel built on **sing-box**. The master and the nodes are deployed separately, and every connection is counted exactly, so traffic analytics are built in (no separate Neko Master needed).
 
-| 模块 | 能力 |
+![Overview](docs/img/overview.png)
+
+<table>
+  <tr>
+    <td><img src="docs/img/users.png" alt="User details drawer"></td>
+    <td><img src="docs/img/traffic-dark.png" alt="Traffic analytics, dark mode"></td>
+  </tr>
+  <tr>
+    <td align="center">Users: quota, expiry, devices, per-user traffic</td>
+    <td align="center">Traffic analytics down to user × domain × source IP</td>
+  </tr>
+  <tr>
+    <td><img src="docs/img/routing.png" alt="Routing rule editor"></td>
+    <td><img src="docs/img/subpage.png" alt="Themed subscription page"></td>
+  </tr>
+  <tr>
+    <td align="center">One routing model → Clash / sing-box / Surge configs</td>
+    <td align="center">Themeable subscription page for end users</td>
+  </tr>
+  <tr>
+    <td><img src="docs/img/certs.png" alt="Domains and certificates"></td>
+    <td><img src="docs/img/settings-api.png" alt="API keys and MCP"></td>
+  </tr>
+  <tr>
+    <td align="center">Domains, certificates and connectivity tests</td>
+    <td align="center">Scoped API keys and a built-in MCP server</td>
+  </tr>
+</table>
+
+> The UI is currently in Chinese. Design notes are in [docs/DESIGN.md](docs/DESIGN.md).
+
+## Features
+
+| Area | What you get |
 |---|---|
-| 节点 | 一行命令接入（一次性令牌 + CSR，面板自签 CA 签发证书，mTLS / TLS 1.3）；节点主动连接 master，可以在 NAT 后面；证书到期前自动续签；删除节点即吊销证书；显示 CPU、内存、实时速率、月流量配额（按重置日计算，80% / 100% 告警） |
-| 内核 | sing-box 1.14 以 Go 库方式内嵌；骨架（路由、DNS、出站）与入站分开管理：只改用户时**原地热更新**（vless / vmess / trojan / shadowsocks），已有连接不断；其它入站只重建自身；骨架改动先校验再蓝绿重建，失败时旧配置继续服务 |
-| 入站 | VLESS（REALITY / Vision、WS、gRPC、HTTPUpgrade）、VMess、Trojan、Shadowsocks 2022、Hysteria2、TUIC v5、AnyTLS；模板一键生成 REALITY 密钥对，支持 ACME 自动证书 |
-| 用户 | 流量额度、到期时间、用量重置周期（日 / 周 / 月 / 按创建日滚动）、**限速**（按用户在所有连接间共享令牌桶）、**设备数**（来源 IP；节点本地拒绝 + master 跨节点校正）、批量创建、更换密钥、踢下线 |
-| 分组 | 用户 ↔ 入站多对多映射；默认分组自动接纳新用户和新入站 |
-| 订阅 | `/s/<令牌>`（兼容 3x-ui 的 `/sub/<subId>`）；根据 User-Agent 返回 sing-box JSON、Clash/mihomo YAML 或 base64 URI；浏览器打开显示自助页（用量、二维码、一键导入）；`subscription-userinfo` 等响应头；Host 层可覆盖地址、端口、SNI、Host、路径，用于 CDN、中转、多域名；记录订阅访问日志 |
-| 路由模板 | 出站、路由规则、规则集、DNS 的结构化编辑和 JSON 编辑；改动先存为草稿，查看 diff 后再发布到使用该模板的节点 |
-| 流量分析 | 精确到 用户 × 节点 × 入站 × 出站 × 域名 × 来源 IP × 端口 × 规则；粒度 1 分钟、5 分钟、15 分钟、1 小时、1 天；分组趋势图、占比、明细；实时连接列表，可以断开连接 |
-| 运维 | 两步验证（TOTP）、带权限的 API 密钥、审计日志、Telegram / Webhook 通知、一键备份、`sbmaster reset-admin`、从 3x-ui 迁移（API JSON 或 `x-ui.db`） |
-| API 与智能体 | 带权限范围的 API 密钥（read / users:write / nodes:write / settings:write / admin）、有效期、来源 IP 白名单、按密钥限流；OpenAPI 3.1 文档与面板内文档页；内置 MCP 服务器（`POST /mcp`），Claude Code 等智能体可直接查询和管理用户 |
-| 界面 | React 19、react-aria-components、Tailwind v4；Rosé Pine 浅色和深色主题；⌘K 命令面板，`g`+字母 跳转页面；手机布局 |
+| **Nodes** | One-line enrollment (one-time token + CSR, certificate signed by the panel's own CA, mTLS over TLS 1.3). Nodes dial the master, so they can sit behind NAT. Automatic certificate renewal, revocation on delete. CPU, memory, live throughput and monthly quota per node (80% / 100% alerts). |
+| **Core** | sing-box 1.14 embedded as a Go library. Changing only users is a **hot update** (vless / vmess / trojan / shadowsocks) that keeps existing connections alive; other inbound changes rebuild only that inbound; skeleton changes are validated first and swapped blue-green, so a bad config never takes a node down. |
+| **Inbounds** | VLESS (REALITY / Vision, WS, gRPC, HTTPUpgrade), VMess, Trojan, Shadowsocks 2022, Hysteria2, TUIC v5, AnyTLS. One-click REALITY key pairs. PROXY protocol listeners for nginx SNI routing on a shared port 443. |
+| **Users** | Traffic quota, expiry, reset cycles (daily / weekly / monthly / rolling), **speed limits** shared across all of a user's connections, **device limits** by source IP (enforced locally on each node and corrected across nodes by the master), batch actions with undo, key rotation, kick. |
+| **Groups** | Many-to-many mapping between users and inbounds; the default group picks up new users and inbounds automatically. |
+| **Subscriptions** | `/s/<token>` (3x-ui `/sub/<subId>` links keep working). Returns sing-box JSON, Clash/mihomo YAML, Surge or base64 URIs based on the User-Agent. A browser gets a themeable self-service page (usage, QR codes, one-click import). Per-host overrides for address, port, SNI, Host and path (CDN, relays, multiple domains). Access log. |
+| **Routing profiles** | Define rules and policy groups once, generate per-client configs (Clash/mihomo, sing-box, Surge) with client-specific templates. Visual editor plus raw JSON, preview and diff before publishing. Presets: standard split, global, bypass mainland, minimal. |
+| **Traffic analytics** | Exact bytes by user × node × inbound × outbound × domain × source IP × port × rule. Any range in the last 30 days, down to the minute; 1 min / 5 min / 15 min / 1 h / 1 day buckets. Live connection list with disconnect. |
+| **Domains & certificates** | Guided setup: connect a Cloudflare API token to create DNS records and issue certificates via DNS-01 (wildcards supported, no port 80 needed), or import PEM files, or use certbot certificates already on a node. Renewal swaps certificate files without rebuilding inbounds. |
+| **Connectivity tests** | The master tests each inbound stage by stage (DNS → TCP/QUIC → TLS → proxy) with a hidden probe user, and tells you which side failed: a closed port, an SNI mismatch, the inbound rejecting the client, or an unreachable upstream behind the inbound. |
+| **API & agents** | Scoped API keys (read / users:write / nodes:write / settings:write / admin) with expiry, IP allowlists and rate limits. OpenAPI 3.1 spec with an in-panel docs page. Built-in MCP server (`POST /mcp`) so Claude Code and other agents can query and manage users. |
+| **Operations** | TOTP two-factor login, audit log, Telegram / webhook notifications, one-click backup, `sbmaster reset-admin`, migration from 3x-ui (API JSON or `x-ui.db`). |
+| **UI** | React 19, react-aria-components, Tailwind v4, ECharts. Four palettes (Graphite, Rosé Pine, Catppuccin, Nord) in light and dark, custom accent colour, ⌘K command palette, `g` + letter navigation, mobile layout. |
 
-### 流量不丢的设计
-节点为每条连接计数，每 10 秒汇总成报告，**先写入本地 bbolt 再发送**；master 在同一个事务里按 `(节点, seq)` 去重并累加，确认后节点才删除。
-master 宕机期间报告在节点上排队（超过上限时合并成更粗的时间窗，不直接丢弃）；重发不会重复计入。
+### Traffic is never lost or double-counted
+Each node counts every connection and summarises it every 10 seconds. Reports are **written to a local bbolt spool before they are sent**; the master deduplicates by `(node, seq)` and adds them up in the same transaction, and only then does the node delete them. While the master is down, reports queue on the node (and are merged into coarser windows instead of being dropped if the queue grows too large). Resending never counts twice.
 
-## 构建与测试
+## Install
 
+Supports Debian / Ubuntu, RHEL / CentOS 7+ / Rocky / Alma / Fedora, Alpine (OpenRC), Arch and openSUSE on amd64 and arm64. Release archives are verified with SHA256.
+
+**Panel (master)**
 ```bash
-make web          # 前端（pnpm）
-make master node  # 本机二进制
-make linux        # linux amd64/arm64 静态二进制（CGO=0）
-make test         # 单元测试 + 端到端测试
-make test-race    # 加上 race 检测
+curl -fsSL https://raw.githubusercontent.com/genguzzz/sbpanel/main/install.sh | sh -s -- master \
+  --web 127.0.0.1:8080 --grpc :9443 --public-grpc panel.example.com:9443
+```
+The installer prints the initial admin password. The web UI only listens on localhost by default; put nginx or Caddy with HTTPS in front of it. Nodes connect to the gRPC port (9443 by default), so open it in your firewall.
+
+**Node**: copy the command from the panel (Nodes → Add node). It looks like this:
+```bash
+curl -fsSL https://raw.githubusercontent.com/genguzzz/sbpanel/main/install.sh | sh -s -- node \
+  --master panel.example.com:9443 --token <one-time-token> --ca-sha256 <ca-fingerprint>
 ```
 
-需要 Go 1.25+（go.mod 会自动拉取工具链）和 pnpm。
+**Upgrade / uninstall / status**
+```bash
+curl -fsSL https://raw.githubusercontent.com/genguzzz/sbpanel/main/install.sh | sh -s -- upgrade
+curl -fsSL https://raw.githubusercontent.com/genguzzz/sbpanel/main/install.sh | sh -s -- uninstall node --purge
+curl -fsSL https://raw.githubusercontent.com/genguzzz/sbpanel/main/install.sh | sh -s -- status
+```
+If GitHub is slow to reach, add `--mirror https://<your-github-proxy>/`. Use `--version vX.Y.Z` to install a specific release.
 
-### 测试覆盖
-- **单元测试**：TOTP（RFC 6238 向量）、PKI 与 CA 指纹校验、重置周期（含月末对齐）、REALITY 公钥推导、各协议用户 JSON、分享链接、sing-box 订阅（用 sing-box 解析并 `box.New` 校验）、mihomo YAML、User-Agent 识别、模板校验、报告并发重放只计一次、超额判定、分组与策略、从 v1 数据库迁移、3x-ui 导入（分组推导、失败回滚）、节点端增量统计、维度截断、spool 重启续号与压缩不丢字节、设备数与令牌桶限速
-- **端到端测试**（真实 sing-box 客户端，配置取自用户自己的订阅）：
-  - 11 种入站组合逐一传输并核对每个入站的计费
-  - 经 REALITY 传输 100 MiB，master 与节点计数逐字节一致
-  - master 宕机后补传数据，不丢失也不重复
-  - 分组隔离
-  - 热更新时其它用户的连接不断
-  - 限速
-  - 实时连接查看与断开
-  - 到期后断线，续期后恢复
-  - 模板发布；配置错误时自动保留旧配置
-  - 节点证书吊销
-  - 并发多用户计费
-  - API 鉴权：401、API 令牌、两步验证、改密码、审计
-  - 带权限的 API 密钥（权限、过期、IP 白名单、限流）与 MCP 端点（initialize、tools/list、读写工具）
-  - 输入校验与冲突
-  - 3x-ui 迁移后旧客户端和旧订阅链接继续可用
+**Admin account recovery**
+```bash
+sbmaster reset-admin --user admin --password -            # reads the new password from stdin
+sbmaster reset-admin --user alice --rename admin --password -   # also renames the account
+```
 
-## API 与 AI 智能体
+**Migrating from 3x-ui**
+- Users only: `sbmaster import-3xui --users-only --json export.json`. Usernames, UUIDs, passwords, quotas, expiry and subIds are kept, so existing `/sub/<subId>` links keep working.
+- Users and inbounds: `--node <ID> --db /etc/x-ui/x-ui.db`.
+- Add `--dry-run` to either to preview.
 
-在「设置 → API 与智能体」创建密钥（只显示一次），按需勾选权限：
+## API and AI agents
+
+Create a key under Settings → API & agents (it is shown once) and pick its scopes:
 
 ```bash
 curl -H "Authorization: Bearer sbp_…" https://panel.example.com/api/overview
 claude mcp add --transport http sbpanel https://panel.example.com/mcp --header "Authorization: Bearer sbp_…"
 ```
 
-接口描述在 `GET /api/openapi.json`（面板内「API 文档」页可浏览）。权限、限流、MCP 工具和其它客户端的配置见 [docs/API.md](docs/API.md)。
+The spec is served at `GET /api/openapi.json` (browsable on the in-panel API docs page). Scopes, rate limits, MCP tools and other client setups are documented in [docs/API.md](docs/API.md). Certificates are covered in [docs/CERTS.md](docs/CERTS.md), subscription page themes in [docs/SUB-THEMES.md](docs/SUB-THEMES.md).
 
-## 一键安装
+## Build and test
 
-支持 Debian / Ubuntu、RHEL / CentOS 7+ / Rocky / Alma / Fedora、Alpine（OpenRC）、Arch、openSUSE，架构 amd64 / arm64。安装包会做 SHA256 校验。
-
-**面板（master）**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/genguzzz/sbpanel/main/install.sh | sh -s -- master \
-  --web 127.0.0.1:8080 --grpc :9443 --public-grpc panel.example.com:9443
-```
-安装完成后会打印初始管理员密码。Web 默认只监听本机，请用 nginx 或 Caddy 反代并配置 HTTPS；节点通过 gRPC 端口（默认 9443）连接 master，需要在防火墙放行。
-
-**节点**：在面板「节点 → 添加节点」中复制命令，格式如下
-```bash
-curl -fsSL https://raw.githubusercontent.com/genguzzz/sbpanel/main/install.sh | sh -s -- node \
-  --master panel.example.com:9443 --token <一次性令牌> --ca-sha256 <CA 指纹>
+make web          # frontend (pnpm)
+make master node  # binaries for this machine
+make linux        # static linux amd64/arm64 binaries (CGO=0)
+make test         # unit + end-to-end tests
+make test-race    # with the race detector
 ```
 
-**升级 / 卸载 / 状态**
-```bash
-curl -fsSL https://raw.githubusercontent.com/genguzzz/sbpanel/main/install.sh | sh -s -- upgrade
-curl -fsSL https://raw.githubusercontent.com/genguzzz/sbpanel/main/install.sh | sh -s -- uninstall node --purge
-curl -fsSL https://raw.githubusercontent.com/genguzzz/sbpanel/main/install.sh | sh -s -- status
-```
-GitHub 访问不畅时，可以加 `--mirror https://<你的 GitHub 代理>/` 走镜像；用 `--version vX.Y.Z` 安装指定版本。
+Requires Go 1.25+ (go.mod fetches the toolchain) and pnpm.
 
-**从 3x-ui 迁移**
-- 只迁移用户：`sbmaster import-3xui --users-only --json export.json`。用户名、UUID、密码、额度、到期时间、subId 都保持不变，原来的 `/sub/<subId>` 订阅链接继续可用。
-- 连同入站一起迁移：`--node <ID> --db /etc/x-ui/x-ui.db`。
-- 两种方式都可以先加 `--dry-run` 预览。
+The end-to-end tests run real sing-box clients with configs taken from the users' own subscriptions. Among other things they cover:
+- every inbound variant, with per-inbound billing checked;
+- 100 MiB over REALITY with master and node byte counts matching exactly;
+- master outages with no lost or duplicated traffic;
+- hot updates that don't drop other users' connections;
+- speed limits, device limits, expiry and renewal;
+- template publishing with automatic fallback on a bad config;
+- certificate revocation;
+- the connectivity probe, including an unreachable upstream;
+- API keys (scopes, expiry, IP allowlist, rate limit) and the MCP endpoint;
+- 3x-ui migration with old clients and subscription links still working.
 
-## 本地演示
+## Local demo
 
 ```bash
 make web master node && go build -tags with_quic,with_utls -ldflags=-checklinkname=0 -o bin/devclient ./tools/devclient
-scripts/dev-demo.sh start     # master + node + 用户 + VLESS REALITY 入站 + 两个客户端
-scripts/dev-demo.sh traffic   # 通过两个用户访问一批网站
+scripts/dev-demo.sh start     # master + node + users + a VLESS REALITY inbound + two clients
+scripts/dev-demo.sh traffic   # browse a set of sites through both users
 scripts/dev-demo.sh stop
 ```
 
-## 许可
+The screenshots above were taken from this demo.
 
-sbpanel 以库的形式链接 sing-box（GPL-3.0-or-later），并在 `internal/node/hot/` 中包含修改过的 sing-box 源码，因此**分发二进制时整个项目须遵守 GPL-3.0-or-later**。
+## License
+
+sbpanel links sing-box (GPL-3.0-or-later) as a library and includes modified sing-box sources in `internal/node/hot/`, so **binaries are distributed under GPL-3.0-or-later**.
