@@ -40,6 +40,55 @@ type session struct {
 	watchUntil time.Time
 	watching   bool
 	certbot    []string // certbot lineages found on the node
+	// probeSeen: inbound tag -> the probe's latest routed connection on the node
+	probeSeen map[string]probeSight
+	lastConns time.Time // when the node last sent a live snapshot
+}
+
+type probeSight struct {
+	outbound string
+	at       time.Time // node clock
+}
+
+// watchFor keeps the node streaming live connections for at least d.
+func (h *Hub) watchFor(nodeID string, d time.Duration) {
+	s := h.session(nodeID)
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	was := time.Now().Before(s.watchUntil)
+	if u := time.Now().Add(d); u.After(s.watchUntil) {
+		s.watchUntil = u
+	}
+	s.mu.Unlock()
+	if !was {
+		h.trySend(s, &pb.MasterMsg{M: &pb.MasterMsg_Watch{Watch: &pb.Watch{On: true}}})
+	}
+}
+
+// probeSighting reports whether the node saw the probe routed on inbound tag at
+// or after since, waiting up to wait for a fresh snapshot. known is false when
+// the node sent no snapshot in time (offline or too old to report probes).
+func (h *Hub) probeSighting(nodeID, tag string, since time.Time, wait time.Duration) (ps probeSight, seen, known bool) {
+	deadline := time.Now().Add(wait)
+	for {
+		var fresh bool
+		if s := h.session(nodeID); s != nil {
+			s.mu.Lock()
+			ps, seen = s.probeSeen[tag]
+			fresh = s.lastConns.After(since)
+			s.mu.Unlock()
+			// a sighting older than this probe is a previous run's (allow clock skew)
+			if seen && !ps.at.Before(since.Add(-3*time.Second)) {
+				return ps, true, true
+			}
+		}
+		if time.Now().After(deadline) {
+			return ps, false, fresh
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func (s *session) snapshot() (hello *pb.Hello, hb *pb.Heartbeat, last time.Time, online []*pb.OnlineUser) {
@@ -367,6 +416,15 @@ func (h *Hub) handle(s *session, msg *pb.NodeMsg) {
 		s.mu.Lock()
 		if s.watching {
 			s.conns = m.Conns
+		}
+		s.lastConns = time.Now()
+		for _, c := range m.Conns.Conns {
+			if c.User == probeUser {
+				if s.probeSeen == nil {
+					s.probeSeen = map[string]probeSight{}
+				}
+				s.probeSeen[c.Inbound] = probeSight{outbound: c.Outbound, at: time.Unix(c.Start, 0)}
+			}
 		}
 		s.mu.Unlock()
 	case *pb.NodeMsg_Certs:

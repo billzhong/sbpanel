@@ -413,6 +413,26 @@ func (p *prober) probeEntry(ctx context.Context, e subEntry, pinPEM []byte, urls
 	return fail("proxy", msg, last)
 }
 
+// refineProxy uses the node's view to say which side failed: if the node routed
+// the probe's connection, the inbound authenticated it and the failure is past
+// it (the outbound, an upstream relay, or the node's own network).
+func (p *prober) refineProxy(r *probeResult, nodeID, tag string, began time.Time) {
+	if strings.HasPrefix(r.Error, "探测地址返回") || strings.HasPrefix(r.Error, "REALITY") {
+		return
+	}
+	ps, seen, known := p.m.hub.probeSighting(nodeID, tag, began, 2500*time.Millisecond)
+	switch {
+	case seen && (ps.outbound == "" || ps.outbound == "direct"):
+		r.Error = "入站正常（节点已收到并认证探测连接，走直连出站），但节点访问探测地址失败：节点出网受限，或 DNS / 路由有问题"
+	case seen:
+		r.Error = fmt.Sprintf("入站正常（节点已收到并认证探测连接），但出站「%s」连不上：上游 / 中转服务器不可达，或该出站的地址、端口、密码配置有误", ps.outbound)
+	case known && strings.HasPrefix(r.Error, "入站关闭了连接"):
+		r.Error = "入站拒绝了探测连接（节点没有收到认证通过的连接）：探测用户还没下发到节点，或协议 / 传输层 / 密钥设置与客户端不一致"
+	case known && strings.HasPrefix(r.Error, "代理请求超时"):
+		r.Error = "代理请求超时，节点没有收到认证通过的连接：入站认证失败后被静默丢弃，或入站与客户端的协议 / 传输层设置不一致"
+	}
+}
+
 func sumMs(ss []probeStage) int64 {
 	var n int64
 	for _, s := range ss {
@@ -581,6 +601,11 @@ func (p *prober) run(ctx context.Context, inboundID int64, nodeID string) ([]pro
 			jobs = append(jobs, job{t, e})
 		}
 	}
+	// let nodes report the probe's routed connections, so a failed proxy stage
+	// can tell "inbound rejected the probe" from "inbound fine, upstream down"
+	for _, t := range ts {
+		p.m.hub.watchFor(t.nodeID, 2*time.Minute)
+	}
 	out := make([]probeResult, len(jobs))
 	sem := make(chan struct{}, 8)
 	var wg sync.WaitGroup
@@ -596,7 +621,11 @@ func (p *prober) run(ctx context.Context, inboundID int64, nodeID string) ([]pro
 					pin = c
 				}
 			}
+			began := time.Now()
 			r := p.probeEntry(ctx, j.e, pin, urls)
+			if !r.OK && r.Stage == "proxy" {
+				p.refineProxy(&r, j.t.nodeID, j.t.in.tag, began)
+			}
 			r.InboundID, r.Tag, r.NodeID, r.Node = j.t.in.id, j.t.in.tag, j.t.nodeID, j.t.in.node
 			out[i] = r
 		}()

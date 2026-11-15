@@ -48,6 +48,36 @@ type Tracker struct {
 	policies map[string]*userPolicy
 
 	rejected atomic.Int64 // connections refused by the device limit
+
+	// probes records the panel probe's routed connections per inbound: they are
+	// not counted, but their presence proves the inbound authenticated the probe
+	// (so a failed probe is the outbound's / upstream's fault, not the inbound's).
+	probeMu sync.Mutex
+	probes  map[string]probeSight
+}
+
+type probeSight struct {
+	outbound string
+	network  string
+	at       time.Time
+}
+
+// probeKeep is how long a probe sighting stays in the live snapshot.
+const probeKeep = 30 * time.Second
+
+func (t *Tracker) sawProbe(m adapter.InboundContext, out adapter.Outbound) {
+	ps := probeSight{network: m.Network, at: time.Now()}
+	if n := len(m.OutboundChain); n > 0 {
+		ps.outbound = m.OutboundChain[n-1].Tag()
+	} else if out != nil {
+		ps.outbound = out.Tag()
+	}
+	t.probeMu.Lock()
+	if t.probes == nil {
+		t.probes = map[string]probeSight{}
+	}
+	t.probes[m.Inbound] = ps
+	t.probeMu.Unlock()
 }
 
 // userPolicy holds per-user limits; limiters are shared by all of the user's
@@ -170,6 +200,7 @@ func (t *Tracker) leave(r *connRec) {
 
 func (t *Tracker) RoutedConnection(ctx context.Context, conn net.Conn, m adapter.InboundContext, rule adapter.Rule, out adapter.Outbound) net.Conn {
 	if m.User == ProbeUser {
+		t.sawProbe(m, out)
 		return conn // the panel's connectivity probe: not counted, not online
 	}
 	r := t.newRec(m, rule, out)
@@ -195,6 +226,7 @@ func (t *Tracker) RoutedConnection(ctx context.Context, conn net.Conn, m adapter
 
 func (t *Tracker) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, m adapter.InboundContext, rule adapter.Rule, out adapter.Outbound) N.PacketConn {
 	if m.User == ProbeUser {
+		t.sawProbe(m, out)
 		return conn
 	}
 	r := t.newRec(m, rule, out)
@@ -317,5 +349,15 @@ func (t *Tracker) Snapshot(max int) *pb.ConnSnapshot {
 	if len(out) > max {
 		out = out[:max]
 	}
+	// recent probe sightings ride along (not part of total; the panel hides them)
+	t.probeMu.Lock()
+	for in, ps := range t.probes {
+		if time.Since(ps.at) > probeKeep {
+			delete(t.probes, in)
+			continue
+		}
+		out = append(out, &pb.ConnInfo{User: ProbeUser, Inbound: in, Outbound: ps.outbound, Network: ps.network, Start: ps.at.Unix()})
+	}
+	t.probeMu.Unlock()
 	return &pb.ConnSnapshot{Conns: out, Total: int64(total)}
 }

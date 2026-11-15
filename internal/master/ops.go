@@ -331,8 +331,7 @@ func (m *Master) apiNodeConns(w http.ResponseWriter, r *http.Request) {
 	if snap != nil {
 		total = snap.Total
 		for _, c := range snap.Conns {
-			if c.User == probeUser {
-				total--
+			if c.User == probeUser { // probe sightings are not part of total
 				continue
 			}
 			out = append(out, conn{c, users[parseUserID(c.User)]})

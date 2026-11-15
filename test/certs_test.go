@@ -249,3 +249,48 @@ func TestConnectivityProbe(t *testing.T) {
 		t.Fatalf("no inbound_unreachable event: %+v", evs)
 	}
 }
+
+// A relay inbound whose upstream is down must be reported as an outbound /
+// upstream failure, not as the inbound rejecting the probe.
+func TestProbeUpstreamDown(t *testing.T) {
+	e := newEnv(t)
+	target := blob(t)
+	e.api.do("PUT", "/api/probe/settings", map[string]any{"url": "http://" + target + "/?n=204", "fallback_url": ""}, nil)
+	c, k, _ := pemPair(t, "sb.test", 90)
+	var up struct{ ID string }
+	e.api.do("POST", "/api/certs/upload", map[string]any{"cert_pem": c, "key_pem": k}, &up)
+	relay := e.createInbound("tj-up", "trojan", map[string]any{"listen": "127.0.0.1", "listen_port": freePort(t), "_cert": up.ID,
+		"tls": map[string]any{"enabled": true, "server_name": "sb.test"}}, nil)
+
+	var tpls []struct {
+		ID   int64  `json:"id"`
+		JSON string `json:"json"`
+	}
+	e.api.do("GET", "/api/templates", nil, &tpls)
+	var tpl map[string]any
+	if err := json.Unmarshal([]byte(tpls[0].JSON), &tpl); err != nil {
+		t.Fatal(err)
+	}
+	tpl["outbounds"] = append(tpl["outbounds"].([]any), map[string]any{"type": "socks", "tag": "dead-up", "server": "127.0.0.1", "server_port": freePort(t)})
+	route := tpl["route"].(map[string]any)
+	rules, _ := route["rules"].([]any)
+	route["rules"] = append([]any{map[string]any{"inbound": []string{"tj-up"}, "outbound": "dead-up"}}, rules...)
+	draft, _ := json.Marshal(tpl)
+	e.api.do("PATCH", fmt.Sprintf("/api/templates/%d", tpls[0].ID), map[string]any{"draft": string(draft)}, nil)
+	e.api.do("POST", fmt.Sprintf("/api/templates/%d/apply", tpls[0].ID), nil, nil)
+	e.waitApplied()
+
+	rs := e.probe(relay)
+	if len(rs) != 1 || rs[0].OK || rs[0].Stage != "proxy" || !strings.Contains(rs[0].Error, "出站「dead-up」") {
+		t.Fatalf("upstream down: %+v", rs)
+	}
+	t.Logf("upstream down: %s", rs[0].Error)
+	// the probe's sightings stay out of the live connection list
+	var conns struct {
+		Conns []map[string]any `json:"conns"`
+	}
+	e.api.do("GET", "/api/nodes/"+e.nodeID+"/conns", nil, &conns)
+	if b, _ := json.Marshal(conns); strings.Contains(string(b), "__probe") {
+		t.Fatalf("probe in conns: %s", b)
+	}
+}
