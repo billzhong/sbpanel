@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"sort"
 	"strconv"
@@ -420,22 +421,47 @@ func sumMs(ss []probeStage) int64 {
 	return n
 }
 
+// probeHTTP sends the probe request through a loopback mixed inbound of the probe
+// sing-box, i.e. through the router exactly like a real client app. Dialing the
+// outbound directly from net/http is not equivalent: QUIC-based outbounds
+// (hysteria2, tuic) then fail TLS-inside-tunnel requests with EOF.
 type probeHTTP struct {
-	dialer   N.Dialer
+	proxy    *url.URL
+	dialer   N.Dialer // the outbound itself, used only to diagnose failures
 	dialHook func(time.Duration)
+}
+
+// diagnose dials the target through the outbound directly: the local proxy hides
+// the real reason (REALITY auth failure, refused, ...) behind a reset.
+func (c *probeHTTP) diagnose(ctx context.Context, u string, orig error) error {
+	if c.dialer == nil {
+		return orig
+	}
+	pu, err := url.Parse(u)
+	if err != nil {
+		return orig
+	}
+	port := pu.Port()
+	if port == "" {
+		port = map[string]string{"https": "443"}[pu.Scheme]
+		if port == "" {
+			port = "80"
+		}
+	}
+	dctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	conn, err := c.dialer.DialContext(dctx, "tcp", M.ParseSocksaddr(net.JoinHostPort(pu.Hostname(), port)))
+	if err != nil {
+		return err
+	}
+	conn.Close()
+	return orig
 }
 
 func (c *probeHTTP) get(ctx context.Context, u string, timeout time.Duration) (int, error) {
 	tr := &http.Transport{
-		DisableKeepAlives: true,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			t := time.Now()
-			conn, err := c.dialer.DialContext(ctx, network, M.ParseSocksaddr(addr))
-			if err == nil && c.dialHook != nil {
-				c.dialHook(time.Since(t))
-			}
-			return conn, err
-		},
+		Proxy:               http.ProxyURL(c.proxy),
+		DisableKeepAlives:   true,
 		TLSHandshakeTimeout: timeout,
 	}
 	defer tr.CloseIdleConnections()
@@ -444,6 +470,15 @@ func (c *probeHTTP) get(ctx context.Context, u string, timeout time.Duration) (i
 	if err != nil {
 		return 0, err
 	}
+	// the tunnel is up once the proxied connection is handed to the client
+	t := time.Now()
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) {
+			if c.dialHook != nil {
+				c.dialHook(time.Since(t))
+			}
+		},
+	}))
 	req.Header.Set("User-Agent", "sbpanel-probe")
 	resp, err := hc.Do(req)
 	if err != nil {
@@ -451,19 +486,26 @@ func (c *probeHTTP) get(ctx context.Context, u string, timeout time.Duration) (i
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
-		return 0, err
+		return 0, c.diagnose(ctx, u, err)
 	}
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	resp.Body.Close()
 	return resp.StatusCode, nil
 }
 
-// probeClient starts a minimal sing-box with one outbound and returns an HTTP
-// client dialing through it.
+// probeClient starts a minimal sing-box (loopback mixed inbound -> one outbound)
+// and returns an HTTP client that goes through it.
 func probeClient(ctx context.Context, outbound map[string]any) (*probeHTTP, func(), error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, nil, err
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
 	cfg := map[string]any{
 		"log":       map[string]any{"disabled": true},
 		"dns":       map[string]any{"servers": []any{map[string]any{"type": "local", "tag": "local"}}},
+		"inbounds":  []any{map[string]any{"type": "mixed", "tag": "probe-in", "listen": "127.0.0.1", "listen_port": port}},
 		"route":     map[string]any{"default_domain_resolver": "local", "final": "probe"},
 		"outbounds": []any{outbound},
 	}
@@ -481,12 +523,12 @@ func probeClient(ctx context.Context, outbound map[string]any) (*probeHTTP, func
 		inst.Close()
 		return nil, nil, err
 	}
-	o, ok := inst.Outbound().Outbound("probe")
-	if !ok {
-		inst.Close()
-		return nil, nil, errors.New("probe outbound missing")
+	pu, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
+	ph := &probeHTTP{proxy: pu}
+	if o, ok := inst.Outbound().Outbound("probe"); ok {
+		ph.dialer = o
 	}
-	return &probeHTTP{dialer: o}, func() { inst.Close() }, nil
+	return ph, func() { inst.Close() }, nil
 }
 
 // ---------- running probes ----------

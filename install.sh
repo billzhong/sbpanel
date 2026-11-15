@@ -193,7 +193,9 @@ install_master() {
 	fi
 	write_unit sbmaster "sbpanel master" "$BIN_DIR/sbmaster --data /var/lib/sbmaster" /var/lib/sbmaster /etc/sbmaster.env
 	sleep 2
-	say "sbmaster $SBP_VERSION is running ($WEB, node gRPC $GRPC)"
+	# shellcheck disable=SC1091
+	w="$(. /etc/sbmaster.env 2>/dev/null; echo "${SBM_WEB:-$WEB}")"; g="$(. /etc/sbmaster.env 2>/dev/null; echo "${SBM_GRPC:-$GRPC}")"
+	say "sbmaster $SBP_VERSION is running (web $w, node gRPC $g)"
 	if [ -z "$ADMIN_PW" ] && [ "$INIT" = systemd ]; then
 		pw="$(journalctl -u sbmaster --no-pager 2>/dev/null | grep -o 'with password [0-9a-f]*' | tail -1 | cut -d' ' -f3)"
 		[ -n "$pw" ] && say "admin password: $pw  (change it after the first login)"
