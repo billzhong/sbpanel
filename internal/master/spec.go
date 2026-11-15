@@ -45,6 +45,14 @@ type specUser struct {
 	Flow     string
 }
 
+// isStatic reports whether an inbound is a standalone entry ("_static": true): it
+// uses the credentials in its own options (a single Shadowsocks password, or its
+// own "users"), is not bound to panel users and never appears in subscriptions.
+func isStatic(opts map[string]any) bool {
+	b, _ := opts["_static"].(bool)
+	return b
+}
+
 // ssKey derives a per-user Shadowsocks 2022 key from the user's password, so the
 // same key can be rebuilt for subscriptions without storing another secret.
 func ssKey(password string, n int) string {
@@ -165,17 +173,23 @@ func buildSpec(db *sql.DB, nodeID string) (*pb.NodeSpec, error) {
 			}
 		}
 		urows.Close()
-		// the hidden connectivity-probe user (probe.go); never in subscriptions or stats
-		pu, pp := probeCreds(db, nodeID)
-		users = append(users, specUser{Name: probeUser, UUID: pu, Password: pp})
-
 		var opts map[string]any
 		if err := json.Unmarshal([]byte(in.opt), &opts); err != nil {
 			return nil, fmt.Errorf("inbound %s: %w", in.tag, err)
 		}
-		uj, err := usersJSON(in.typ, opts, users)
-		if err != nil {
-			return nil, fmt.Errorf("inbound %s: %w", in.tag, err)
+		var uj []byte
+		if isStatic(opts) {
+			// a standalone entry (e.g. a relay hop between nodes) keeps its own
+			// credentials from the options: no panel users, no probe user
+			users = nil
+			uj, _ = json.Marshal(opts["users"])
+		} else {
+			// the hidden connectivity-probe user (probe.go); never in subscriptions or stats
+			pu, pp := probeCreds(db, nodeID)
+			users = append(users, specUser{Name: probeUser, UUID: pu, Password: pp})
+			if uj, err = usersJSON(in.typ, opts, users); err != nil {
+				return nil, fmt.Errorf("inbound %s: %w", in.tag, err)
+			}
 		}
 		ppr, _ := opts["_proxy_protocol"].(bool)
 		ins := &pb.InboundSpec{Tag: in.tag, Type: in.typ, ProxyProtocol: ppr}

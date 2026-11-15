@@ -194,6 +194,10 @@ func (m *Master) subEntries(u subUser) ([]subEntry, error) {
 	rows.Close()
 	var out []subEntry
 	for _, in := range ins {
+		var o map[string]any
+		if json.Unmarshal([]byte(in.opts), &o) == nil && isStatic(o) {
+			continue // standalone entries are never handed to users
+		}
 		es, err := m.expandInbound(in, u.UUID, u.Password)
 		if err != nil {
 			return nil, err
