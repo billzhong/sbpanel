@@ -8,7 +8,7 @@ import (
 
 const xuiExport = `{"success":true,"msg":"","obj":[
  {"id":1,"remark":"reality","enable":true,"listen":"","port":443,"protocol":"vless","tag":"inbound-443",
-  "settings":"{\"clients\":[{\"id\":\"11111111-1111-1111-1111-111111111111\",\"email\":\"alice\",\"flow\":\"xtls-rprx-vision\",\"totalGB\":107374182400,\"expiryTime\":1893456000000,\"enable\":true,\"subId\":\"subalice123\",\"limitIp\":2},{\"id\":\"22222222-2222-2222-2222-222222222222\",\"email\":\"bob\",\"flow\":\"xtls-rprx-vision\",\"totalGB\":0,\"expiryTime\":0,\"enable\":false,\"subId\":\"subbob456\"}],\"decryption\":\"none\"}",
+  "settings":"{\"clients\":[{\"id\":\"11111111-1111-1111-1111-111111111111\",\"email\":\"alice\",\"flow\":\"xtls-rprx-vision\",\"totalGB\":107374182400,\"expiryTime\":1893456000000,\"enable\":true,\"subId\":\"subalice123\",\"limitIp\":2,\"created_at\":1790417356280},{\"id\":\"22222222-2222-2222-2222-222222222222\",\"email\":\"bob\",\"flow\":\"xtls-rprx-vision\",\"totalGB\":0,\"expiryTime\":0,\"enable\":false,\"subId\":\"subbob456\"}],\"decryption\":\"none\"}",
   "streamSettings":"{\"network\":\"tcp\",\"security\":\"reality\",\"realitySettings\":{\"dest\":\"www.microsoft.com:443\",\"serverNames\":[\"www.microsoft.com\"],\"privateKey\":\"6PA7Cv0PWmrqgZZnuUp-ApqPpLqjYUjQsiKbUL_eFHM\",\"shortIds\":[\"ab12\",\"\"]}}",
   "clientStats":[{"email":"alice","up":100,"down":2000},{"email":"bob","up":1,"down":2}]},
  {"id":2,"remark":"ws","enable":true,"listen":"0.0.0.0","port":8443,"protocol":"vmess","tag":"inbound-8443",
@@ -47,6 +47,14 @@ func TestImport3XUI(t *testing.T) {
 	rep, err = m.Import3XUI("n1", ins, false)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// the 3x-ui creation time anchors the monthly reset; a client without one starts now
+	var aliceCreated, bobCreated int64
+	var aliceReset string
+	m.db.QueryRow(`SELECT created_at, reset_strategy FROM users WHERE username='alice'`).Scan(&aliceCreated, &aliceReset)
+	m.db.QueryRow(`SELECT created_at FROM users WHERE username='bob'`).Scan(&bobCreated)
+	if aliceCreated != 1790417356 || aliceReset != defaultReset || now()-bobCreated > 60 {
+		t.Fatalf("created_at alice=%d (%s) bob=%d", aliceCreated, aliceReset, bobCreated)
 	}
 	type u struct {
 		name, tok, uuid, pw, status string

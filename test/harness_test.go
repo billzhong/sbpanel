@@ -328,7 +328,8 @@ func (e *env) subOutbounds(id int64) map[string]json.RawMessage {
 func client(t *testing.T, outbound json.RawMessage) string {
 	t.Helper()
 	port := freePort(t)
-	cfg := fmt.Sprintf(`{"log":{"level":"error"},"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":%d}],"outbounds":[%s]}`, port, outbound)
+	// the "local" DNS server mirrors a full generated config (outbounds may name it)
+	cfg := fmt.Sprintf(`{"log":{"level":"error"},"dns":{"servers":[{"tag":"local","type":"local"}]},"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":%d}],"outbounds":[%s]}`, port, outbound)
 	ctx := include.Context(context.Background())
 	var opts option.Options
 	if err := sjson.UnmarshalContext(ctx, []byte(cfg), &opts); err != nil {

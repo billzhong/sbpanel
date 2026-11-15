@@ -706,6 +706,7 @@ type userReq struct {
 	TrafficLimit  *int64   `json:"traffic_limit"`
 	ExpireAt      *int64   `json:"expire_at"`
 	ResetStrategy *string  `json:"reset_strategy"`
+	CreatedAt     *int64   `json:"created_at"` // PATCH only: the account's start, which anchors month_rolling resets
 	Note          *string  `json:"note"`
 	Enabled       *bool    `json:"enabled"`
 	ResetUsage    bool     `json:"reset_usage"`
@@ -722,6 +723,9 @@ type userReq struct {
 func (req *userReq) check() error {
 	if req.ResetStrategy != nil && !validReset(*req.ResetStrategy) {
 		return fmt.Errorf("Reset period must be none/day/week/month/month_rolling")
+	}
+	if req.CreatedAt != nil && (*req.CreatedAt <= 0 || *req.CreatedAt > now()) {
+		return fmt.Errorf("created_at must be a past unix time")
 	}
 	for _, p := range []*int64{req.TrafficLimit, req.ExpireAt, req.DeviceLimit, req.SpeedUp, req.SpeedDown} {
 		if p != nil && *p < 0 {
@@ -847,6 +851,9 @@ func (m *Master) apiUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ResetStrategy != nil {
 		set("reset_strategy", *req.ResetStrategy)
+	}
+	if req.CreatedAt != nil {
+		set("created_at", *req.CreatedAt)
 	}
 	if req.Note != nil {
 		set("note", *req.Note)

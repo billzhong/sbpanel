@@ -8,6 +8,7 @@ import { Badge, Button, Callout, Card, Checkbox, Confirm, CopyText, Field, IconB
 import { AppearanceSettings } from './settings/Appearance'
 import { ApiAgents } from './settings/ApiAgents'
 import { ApiDocs } from './settings/ApiDocs'
+import { NodeCoreSettings } from './settings/NodeCore'
 import { tr, useT } from '../i18n'
 import { C } from '../i18n/common'
 import { S } from '../i18n/settings'
@@ -22,13 +23,14 @@ const IconShield: IconC = (p) => <Svg {...p}><path d="M12 3 4.5 6v5.5c0 4.6 3.1 
 const IconPalette: IconC = (p) => <Svg {...p}><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.8-1.9 0-.5-.2-.9-.5-1.3-.3-.3-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z" /><circle cx="7.5" cy="11.5" r="1" /><circle cx="10" cy="7.5" r="1" /><circle cx="15" cy="7.5" r="1" /></Svg>
 const IconBellS: IconC = (p) => <Svg {...p}><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8" /><path d="M10 21a2 2 0 0 0 4 0" /></Svg>
 const IconSliders: IconC = (p) => <Svg {...p}><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1" /><circle cx="15" cy="6" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="17" cy="18" r="2" /></Svg>
+const IconChip: IconC = (p) => <Svg {...p}><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9.5 9.5h5v5h-5zM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" /></Svg>
 const IconArchive: IconC = (p) => <Svg {...p}><ellipse cx="12" cy="5.5" rx="8" ry="2.5" /><path d="M4 5.5v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-6" /><path d="M4 11.5v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-6" /></Svg>
 const IconImport: IconC = (p) => <Svg {...p}><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" /><path d="M12 3v11M8 10l4 4 4-4" /></Svg>
 const IconAgent: IconC = (p) => <Svg {...p}><rect x="4" y="7" width="16" height="12" rx="3" /><path d="M12 7V4M9 3h6" /><circle cx="9" cy="13" r="1.2" /><circle cx="15" cy="13" r="1.2" /><path d="M2 12v2M22 12v2" /></Svg>
 const IconNavSide: IconC = (p) => <Svg {...p}><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9 4v16" /></Svg>
 const IconNavTop: IconC = (p) => <Svg {...p}><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 9h18" /></Svg>
 
-type SectionId = 'account' | 'api' | 'appearance' | 'notify' | 'policy' | 'backup' | 'import'
+type SectionId = 'account' | 'api' | 'appearance' | 'notify' | 'policy' | 'core' | 'backup' | 'import'
 const sec = (id: SectionId, icon: IconC, el: () => ReactNode) => ({
   id, icon, el,
   get label() { return tr(S)[`sec_${id}`] },
@@ -40,12 +42,13 @@ const SECTIONS: { id: SectionId; label: string; desc: string; icon: IconC; el: (
   sec('appearance', IconPalette, () => <AppearanceSettings />),
   sec('notify', IconBellS, () => <Notify />),
   sec('policy', IconSliders, () => <Policy />),
+  sec('core', IconChip, () => <NodeCoreSettings />),
   sec('backup', IconArchive, () => <Backup />),
   sec('import', IconImport, () => <Import />),
 ]
 const isSection = (v: string | null): v is SectionId => SECTIONS.some((x) => x.id === v)
 // Old ?tab= links (and the removed subpage tab) map onto sections.
-const LEGACY_TAB: Record<string, SectionId> = { account: 'account', api: 'api', tokens: 'api', appearance: 'appearance', subpage: 'appearance', notify: 'notify', policy: 'policy', backup: 'backup', import: 'import' }
+const LEGACY_TAB: Record<string, SectionId> = { account: 'account', api: 'api', tokens: 'api', appearance: 'appearance', subpage: 'appearance', notify: 'notify', policy: 'policy', core: 'core', backup: 'backup', import: 'import' }
 
 const NAV_KEY = 'sbp-settings-nav'
 type NavPref = 'vertical' | 'horizontal'

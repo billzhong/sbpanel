@@ -141,6 +141,8 @@ func buildSpec(db *sql.DB, nodeID string) (*pb.NodeSpec, error) {
 		return nil, fmt.Errorf("skeleton: %w", err)
 	}
 	delete(sk, "inbounds")
+	core := loadNodeCore(db)
+	core.applySkeleton(sk)
 	skb, _ := json.Marshal(sk) // canonical, compact
 	spec := &pb.NodeSpec{SkeletonJson: skb, SkeletonHash: shortHash(skb)}
 
@@ -209,6 +211,7 @@ func buildSpec(db *sql.DB, nodeID string) (*pb.NodeSpec, error) {
 		delete(opts, "users")
 		delete(opts, "type")
 		delete(opts, "tag")
+		core.applyInbound(opts)
 		ob, _ := json.Marshal(opts)
 		names := make([]string, 0, len(users))
 		for _, u := range users {
@@ -245,6 +248,7 @@ func buildSpec(db *sql.DB, nodeID string) (*pb.NodeSpec, error) {
 		rows.Close()
 	}
 	addCertWatches(db, spec, nodeID)
+	spec.Runtime = core.runtime()
 	sort.Slice(spec.Inbounds, func(i, j int) bool { return spec.Inbounds[i].Tag < spec.Inbounds[j].Tag })
 	ids := make([]int64, 0, len(policies))
 	for id := range policies {
@@ -270,6 +274,9 @@ func specHash(s *pb.NodeSpec) string {
 	}
 	for _, c := range s.Certs {
 		parts = append(parts, []byte("cert:"+c.Id+"/"+c.Hash))
+	}
+	if rt := s.Runtime; rt != nil {
+		parts = append(parts, []byte(fmt.Sprintf("rt:%d/%d", rt.Gogc, rt.MemoryLimit)))
 	}
 	for _, w := range s.WatchCerts {
 		parts = append(parts, []byte("watch:"+w.Id+"\x00"+w.CertPath+"\x00"+w.KeyPath))

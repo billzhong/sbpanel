@@ -16,6 +16,7 @@ export const S = dict({
   sec_appearance: 'Appearance', sec_appearance_d: 'Panel palette, accent colour, corner radius and density',
   sec_notify: 'Notifications', sec_notify_d: 'Telegram / webhook channels and events',
   sec_policy: 'Policy', sec_policy_d: 'Device policy, data retention and node enrollment',
+  sec_core: 'Node core', sec_core_d: 'sing-box log level, listener options and sbnode memory, for every node',
   sec_backup: 'Backup & restore', sec_backup_d: 'Download the database and how to restore it',
   sec_import: 'Migrate from 3x-ui', sec_import_d: 'Import inbounds and users from 3x-ui',
   // account
@@ -75,6 +76,7 @@ export const S = dict({
   sec_appearance: '外观', sec_appearance_d: '面板配色、强调色、圆角与密度',
   sec_notify: '通知', sec_notify_d: 'Telegram / Webhook 渠道与事件',
   sec_policy: '策略', sec_policy_d: '设备数策略、数据保留与节点接入',
+  sec_core: '节点内核', sec_core_d: '所有节点的 sing-box 日志级别、监听参数与 sbnode 内存',
   sec_backup: '备份与恢复', sec_backup_d: '下载数据库与恢复步骤',
   sec_import: '从 3x-ui 迁移', sec_import_d: '导入 3x-ui 的入站和用户',
   pwMismatch: '两次输入的新密码不一致', pwChanged: '密码已修改',

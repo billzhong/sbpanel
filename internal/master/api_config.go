@@ -476,6 +476,8 @@ var publicSettings = map[string]string{
 	"sub_rule_mirror": "",
 	// panel appearance default (per-browser choices override it)
 	"ui_appearance": "",
+	// sing-box core tuning pushed to every node (nodecore.go)
+	"node_core": "",
 }
 
 func (m *Master) apiSettings(w http.ResponseWriter, r *http.Request) {
@@ -538,6 +540,12 @@ func (m *Master) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, 400, "The logo URL must start with https://")
 				return
 			}
+		case "node_core":
+			var err error
+			if v, err = validateNodeCore(v); err != nil {
+				writeErr(w, 400, err.Error())
+				return
+			}
 		case "sub_support_links", "sub_clients", "ui_appearance":
 			var err error
 			switch k {
@@ -554,6 +562,9 @@ func (m *Master) apiSaveSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		setSetting(m.db, k, v)
+	}
+	if _, ok := req["node_core"]; ok {
+		m.reconcile() // every node's spec carries it
 	}
 	m.audit(r, "settings.update", "", strings.Join(keys(req), ","))
 	writeJSON(w, 200, map[string]bool{"ok": true})

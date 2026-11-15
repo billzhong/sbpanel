@@ -109,7 +109,7 @@ var oaSchemas = js{
 	}),
 	"UserInput": tObj(js{
 		"username": tStr("Letters, digits, . _ @ -; up to 64"), "traffic_limit": tBytes("0 = unlimited"), "expire_at": tTS("0 = never"),
-		"reset_strategy": tEnum("", resetEnum...), "note": tStr(""), "enabled": tBool(""),
+		"created_at": tTS("PATCH only: account start; anchors month_rolling resets"), "reset_strategy": tEnum("", resetEnum...), "note": tStr(""), "enabled": tBool(""),
 		"reset_usage": tBool("PATCH only: reset this period's usage"), "rotate_secrets": tBool("PATCH only: regenerate UUID / password / subscription token"),
 		"device_limit": tInt(""), "speed_up": tInt(""), "speed_down": tInt(""), "group_ids": arr(tInt("")), "sub_profile_id": tInt(""),
 		"limits": arr(tObj(js{"id": tInt("Traffic limit preset"), "traffic_limit": tBytes("Custom size; 0 = the preset's size")})),

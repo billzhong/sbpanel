@@ -180,6 +180,7 @@ func (c *Core) Apply(spec *pb.NodeSpec) error {
 		c.log.Printf("core started (skeleton %s)", spec.SkeletonHash)
 	}
 
+	applyRuntime(spec.Runtime)
 	c.tracker.SetPolicies(spec.Policies)
 	var errs []error
 	if err := c.syncCerts(spec.Certs); err != nil {

@@ -172,6 +172,13 @@ message NodeSpec {
   repeated CertBundle certs = 6;
   // Node-local certificate files (e.g. certbot) the node reports on (SANs, expiry).
   repeated CertWatch watch_certs = 7;
+  NodeRuntime runtime = 8;   // the sbnode process (Go runtime); absent = defaults
+}
+
+// NodeRuntime tunes the node agent's Go runtime (it hosts sing-box in-process).
+message NodeRuntime {
+  int32 gogc = 1;           // GC target percent; 0 = Go default (100)
+  int64 memory_limit = 2;   // soft limit in bytes (GOMEMLIMIT); 0 = none
 }
 
 message CertBundle {

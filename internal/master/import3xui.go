@@ -43,6 +43,7 @@ type xuiClient struct {
 	SubID      string `json:"subId"`
 	LimitIP    int64  `json:"limitIp"`
 	Comment    string `json:"comment"`
+	CreatedAt  int64  `json:"created_at"` // unix ms (newer 3x-ui); anchors a month_rolling reset cycle
 }
 
 // ImportReport describes what an import did (or would do in a dry run).
@@ -459,9 +460,13 @@ func (m *Master) import3XUI(nodeID string, ins []XUIInbound, dryRun, usersOnly b
 				token = randHex(12)
 				rep.Warnings = append(rep.Warnings, fmt.Sprintf("%s 的 subId 与已有用户冲突，已生成新订阅链接", c.Email))
 			}
+			created := now() // keep the client's 3x-ui creation time: monthly resets count from it
+			if c.CreatedAt > 0 && c.CreatedAt/1000 < created {
+				created = c.CreatedAt / 1000
+			}
 			res, err := tx.Exec(`INSERT INTO users(username, sub_token, uuid, password, traffic_limit, expire_at, device_limit, enabled, note,
 				used_up, used_down, life_up, life_down, xui_up, xui_down, last_reset_at, created_at, reset_strategy) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				name, token, uid, pw, c.TotalGB, exp, c.LimitIP, u.enabled, nz(c.Comment, "从 3x-ui 导入"), u.up, u.down, u.up, u.down, u.up, u.down, now(), now(), defaultReset)
+				name, token, uid, pw, c.TotalGB, exp, c.LimitIP, u.enabled, nz(c.Comment, "从 3x-ui 导入"), u.up, u.down, u.up, u.down, u.up, u.down, now(), created, defaultReset)
 			if err != nil {
 				return nil, fmt.Errorf("user %s: %w", name, err)
 			}
