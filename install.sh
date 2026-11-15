@@ -18,7 +18,7 @@ set -eu
 
 REPO="genguzzz/sbpanel"
 BIN_DIR="/usr/local/bin"
-VERSION=""
+SBP_VERSION=""
 MIRROR=""
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
@@ -35,7 +35,7 @@ WEB="127.0.0.1:8080"; GRPC=":9443"; PUBLIC_GRPC=""; ADMIN_PW=""; TZ_ARG="Asia/Sh
 M_ADDR=""; M_TOKEN=""; M_FP=""; TARGET=""; PURGE=0
 while [ $# -gt 0 ]; do
 	case "$1" in
-	--version) VERSION="$2"; shift 2 ;;
+	--version) SBP_VERSION="$2"; shift 2 ;;
 	--mirror) MIRROR="$2"; shift 2 ;;
 	--web) WEB="$2"; shift 2 ;;
 	--grpc) GRPC="$2"; shift 2 ;;
@@ -62,9 +62,11 @@ esac
 
 OS_ID=""; OS_LIKE=""
 if [ -r /etc/os-release ]; then
+	# read in a subshell: os-release defines VERSION etc., which must not leak into ours
 	# shellcheck disable=SC1091
-	. /etc/os-release
-	OS_ID="${ID:-}"; OS_LIKE="${ID_LIKE:-}"
+	OS_ID="$(. /etc/os-release; echo "${ID:-}")"
+	# shellcheck disable=SC1091
+	OS_LIKE="$(. /etc/os-release; echo "${ID_LIKE:-}")"
 fi
 
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
@@ -103,19 +105,19 @@ latest_version() {
 
 download() {
 	install_deps
-	[ -n "$VERSION" ] || VERSION="$(latest_version)" || die "cannot determine the latest release"
-	case "$VERSION" in v*) ;; *) die "bad version: $VERSION" ;; esac
-	name="sbpanel_${VERSION}_linux_${ARCH}.tar.gz"
-	base="${MIRROR}https://github.com/$REPO/releases/download/$VERSION"
+	[ -n "$SBP_VERSION" ] || SBP_VERSION="$(latest_version)" || die "cannot determine the latest release"
+	case "$SBP_VERSION" in v*) ;; *) die "bad version: $SBP_VERSION" ;; esac
+	name="sbpanel_${SBP_VERSION}_linux_${ARCH}.tar.gz"
+	base="${MIRROR}https://github.com/$REPO/releases/download/$SBP_VERSION"
 	TMP="$(mktemp -d)"
 	trap 'rm -rf "$TMP"' EXIT
-	say "downloading sbpanel $VERSION ($ARCH)"
+	say "downloading sbpanel $SBP_VERSION ($ARCH)"
 	curl -fL --retry 3 -o "$TMP/$name" "$base/$name" || die "download failed: $base/$name"
 	curl -fsSL --retry 3 -o "$TMP/checksums.txt" "$base/checksums.txt" || die "cannot download checksums"
 	want="$(grep " $name\$" "$TMP/checksums.txt" | cut -d' ' -f1)"
 	[ -n "$want" ] && [ "$want" = "$(sha256 "$TMP/$name")" ] || die "checksum mismatch for $name"
 	tar -xzf "$TMP/$name" -C "$TMP"
-	PKG="$TMP/sbpanel_${VERSION}_linux_${ARCH}"
+	PKG="$TMP/sbpanel_${SBP_VERSION}_linux_${ARCH}"
 }
 
 systemd_version() { systemctl --version 2>/dev/null | awk 'NR==1{print $2}'; }
@@ -191,7 +193,7 @@ install_master() {
 	fi
 	write_unit sbmaster "sbpanel master" "$BIN_DIR/sbmaster --data /var/lib/sbmaster" /var/lib/sbmaster /etc/sbmaster.env
 	sleep 2
-	say "sbmaster $VERSION is running ($WEB, node gRPC $GRPC)"
+	say "sbmaster $SBP_VERSION is running ($WEB, node gRPC $GRPC)"
 	if [ -z "$ADMIN_PW" ] && [ "$INIT" = systemd ]; then
 		pw="$(journalctl -u sbmaster --no-pager 2>/dev/null | grep -o 'with password [0-9a-f]*' | tail -1 | cut -d' ' -f3)"
 		[ -n "$pw" ] && say "admin password: $pw  (change it after the first login)"
@@ -211,7 +213,7 @@ install_node() {
 	fi
 	write_unit sbnode "sbpanel node (embedded sing-box)" "$BIN_DIR/sbnode run --dir /var/lib/sbnode" /var/lib/sbnode
 	sleep 2
-	say "sbnode $VERSION is running; it should show as online in the panel within a few seconds"
+	say "sbnode $SBP_VERSION is running; it should show as online in the panel within a few seconds"
 	"$BIN_DIR/sbnode" status --dir /var/lib/sbnode || true
 }
 
@@ -223,7 +225,7 @@ upgrade() {
 		[ -x "$BIN_DIR/$n" ] || continue
 		install -m 0755 "$PKG/$n" "$BIN_DIR/$n.new" && mv -f "$BIN_DIR/$n.new" "$BIN_DIR/$n"
 		svc restart "$n"
-		say "$n upgraded to $VERSION"
+		say "$n upgraded to $SBP_VERSION"
 	done
 }
 
