@@ -272,7 +272,7 @@ func (m *Master) expandInbound(in subInbound, uuid, password string) ([]subEntry
 	for _, h := range hosts {
 		e := base
 		if h.Remark != "" {
-			e.Remark = h.Remark
+			e.Remark = name + " · " + h.Remark // keep "<node> <REGION> · " so every entry says where it exits
 		}
 		if h.Address != "" {
 			e.Address = h.Address
